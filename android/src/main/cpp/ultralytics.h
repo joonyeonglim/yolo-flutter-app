@@ -5,10 +5,14 @@
 #ifndef ANDROID_ULTRALYTICS_H
 #define ANDROID_ULTRALYTICS_H
 
-#include <opencv2/core/core.hpp>
+#include <algorithm>
+#include <vector>
+
+
+#include "types.hpp"
 
 struct DetectedObject {
-    cv::Rect_<float> rect;
+    Rect_<float> rect;
     int index;
     float confidence;
 };
