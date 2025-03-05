@@ -7,8 +7,6 @@ public protocol VideoCaptureDelegate: AnyObject {
 }
 
 func bestCaptureDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice {
-  // print("USE TELEPHOTO: ")
-  // print(UserDefaults.standard.bool(forKey: "use_telephoto"))
 
   if UserDefaults.standard.bool(forKey: "use_telephoto"),
     let device = AVCaptureDevice.default(.builtInTelephotoCamera, for: .video, position: position)
