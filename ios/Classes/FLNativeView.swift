@@ -49,13 +49,23 @@ public class FLNativeView: NSObject, FlutterPlatformView, VideoCaptureDelegate {
         if let previewLayer = self.videoCapture.previewLayer {
           DispatchQueue.main.async {
             previewLayer.frame = self.previewView.bounds
+            previewLayer.videoGravity = .resizeAspectFill
+            
+            if previewLayer.superlayer != nil {
+              previewLayer.removeFromSuperlayer()
+            }
+            
             self.previewView.layer.addSublayer(previewLayer)
             print("DEBUG: Added preview layer to view")
-
-            self.videoCapture.start()
-            print("DEBUG: Started video capture")
-            self.currentPosition = position
-            completion(true)
+            
+            self.previewView.layoutIfNeeded()
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+              self.videoCapture.start()
+              print("DEBUG: Started video capture")
+              self.currentPosition = position
+              completion(true)
+            }
           }
         } else {
           print("DEBUG: Failed to create preview layer")
@@ -93,10 +103,16 @@ public class FLNativeView: NSObject, FlutterPlatformView, VideoCaptureDelegate {
         DispatchQueue.main.async {
           // Stop current session
           self.videoCapture.stop()
-          self.videoCapture.previewLayer?.removeFromSuperlayer()
+          
+          // 프리뷰 레이어 제거 전 참조 저장
+          let oldPreviewLayer = self.videoCapture.previewLayer
+          oldPreviewLayer?.removeFromSuperlayer()
 
-          // Small delay to ensure cleanup
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+          // 더 긴 지연 시간으로 변경하여 리소스 해제 보장
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // 이전 프리뷰 레이어가 아직 남아있다면 강제로 제거
+            oldPreviewLayer?.removeFromSuperlayer()
+            
             self.startCameraPreview(position: newPosition) { success in
               self.busy = false
               completion(success)

@@ -19,9 +19,20 @@ public class LocalModel: YoloModel {
                 // 이미 컴파일된 모델은 직접 로드
                 return try MLModel(contentsOf: fileURL)
             } else if fileExtension == "mlmodel" || fileExtension == "mlpackage" {
-                // mlmodel과 mlpackage는 동일하게 컴파일 후 로드
-                let compiledModelURL = try MLModel.compileModel(at: fileURL)
-                return try MLModel(contentsOf: compiledModelURL)
+                // 컴파일된 모델 경로 확인
+                let fileManager = FileManager.default
+                let modelFileName = fileURL.lastPathComponent
+                let compiledModelName = modelFileName.replacingOccurrences(of: fileURL.pathExtension, with: "mlmodelc")
+                let compiledModelURL = fileURL.deletingLastPathComponent().appendingPathComponent(compiledModelName)
+
+                // 이미 컴파일된 모델이 있는지 확인
+                if fileManager.fileExists(atPath: compiledModelURL.path) {
+                    return try MLModel(contentsOf: compiledModelURL)
+                } else {
+                    // 컴파일된 모델이 없으면 컴파일 후 로드
+                    let newCompiledModelURL = try MLModel.compileModel(at: fileURL)
+                    return try MLModel(contentsOf: newCompiledModelURL)
+                }
             } else {
                 throw NSError(domain: "Unsupported model file extension", code: -1, userInfo: nil)
             }

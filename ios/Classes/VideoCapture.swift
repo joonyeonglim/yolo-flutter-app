@@ -71,15 +71,21 @@ public class VideoCapture: NSObject {
       self.captureSession.sessionPreset = sessionPreset
 
       do {
-        guard
-          let device = AVCaptureDevice.default(
-            .builtInWideAngleCamera, for: .video, position: position)
-        else {
-          print("DEBUG: Failed to get camera device")
-          self.captureSession.commitConfiguration()
-          DispatchQueue.main.async { completion(false) }
-          return
+        // 개선된 카메라 장치 선택 로직 사용
+        let device = bestCaptureDevice(position: position)
+        
+        // 카메라 장치 구성 최적화
+        try device.lockForConfiguration()
+        if device.isFocusModeSupported(.continuousAutoFocus) {
+          device.focusMode = .continuousAutoFocus
         }
+        if device.isExposureModeSupported(.continuousAutoExposure) {
+          device.exposureMode = .continuousAutoExposure
+        }
+        if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+          device.whiteBalanceMode = .continuousAutoWhiteBalance
+        }
+        device.unlockForConfiguration()
 
         let input = try AVCaptureDeviceInput(device: device)
         if self.captureSession.canAddInput(input) {
@@ -112,6 +118,10 @@ public class VideoCapture: NSObject {
 
         // Set up preview layer on main thread
         DispatchQueue.main.async {
+          // 기존 프리뷰 레이어가 있으면 제거
+          self.previewLayer?.removeFromSuperlayer()
+          
+          // 새 프리뷰 레이어 생성
           self.previewLayer = AVCaptureVideoPreviewLayer(session: self.captureSession)
           self.previewLayer?.videoGravity = .resizeAspectFill
 
@@ -132,9 +142,25 @@ public class VideoCapture: NSObject {
 
   public func start() {
     if !captureSession.isRunning {
-      cameraQueue.async {
+      cameraQueue.async { [weak self] in
+        guard let self = self else { return }
+        
         self.captureSession.startRunning()
         print("DEBUG: Camera started running")
+        
+        // 세션이 시작된 후 메인 스레드에서 프리뷰 레이어 상태 확인
+        DispatchQueue.main.async { [weak self] in
+          guard let self = self else { return }
+          
+          // 프리뷰 레이어가 없거나 슈퍼레이어가 없는 경우 nativeView에 다시 추가
+          if let previewLayer = self.previewLayer, previewLayer.superlayer == nil, let nativeView = self.nativeView {
+            if let view = nativeView.view() as? UIView {
+              previewLayer.frame = view.bounds
+              view.layer.addSublayer(previewLayer)
+              print("DEBUG: Re-added preview layer to view after starting camera")
+            }
+          }
+        }
       }
     }
   }
