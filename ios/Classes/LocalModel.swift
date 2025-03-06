@@ -16,10 +16,10 @@ public class LocalModel {
 
         do {
             if fileExtension == "mlmodelc" {
-                // mlmodelc 형식은 직접 로드
+                // 이미 컴파일된 모델은 직접 로드
                 self.model = try MLModel(contentsOf: fileURL)
-            } else if fileExtension == "mlmodel" {
-                // mlmodel 형식은 컴파일 후 로드
+            } else if fileExtension == "mlmodel" || fileExtension == "mlpackage" {
+                // mlmodel과 mlpackage는 동일하게 컴파일 후 로드
                 let compiledModelURL = try MLModel.compileModel(at: fileURL)
                 self.model = try MLModel(contentsOf: compiledModelURL)
             } else {
