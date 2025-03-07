@@ -82,4 +82,14 @@ class UltralyticsYoloCameraController
   Future<void> pauseLivePrediction() async {
     await _ultralyticsYoloPlatform.pauseLivePrediction();
   }
+
+  /// Starts the recording
+  Future<String?> startRecording() async {
+    return _ultralyticsYoloPlatform.startRecording();
+  }
+
+  /// Stops the recording
+  Future<String?> stopRecording() async {
+    return _ultralyticsYoloPlatform.stopRecording();
+  }
 }
