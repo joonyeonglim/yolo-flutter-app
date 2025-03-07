@@ -137,7 +137,7 @@ class _UltralyticsYoloCameraPreviewState
 
                       if (classificationResults == null ||
                           classificationResults.isEmpty ||
-                          !widget.showClassificationOverlay) {
+                          !widget.showResults) {
                         return Container();
                       }
 
