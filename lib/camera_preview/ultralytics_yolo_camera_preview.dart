@@ -19,7 +19,7 @@ class UltralyticsYoloCameraPreview extends StatefulWidget {
     this.boundingBoxesColorList = const [Colors.lightBlueAccent],
     this.classificationOverlay,
     this.loadingPlaceholder,
-    this.showClassificationOverlay = true,
+    this.showResults = true,
     super.key,
   });
 
@@ -32,9 +32,6 @@ class UltralyticsYoloCameraPreview extends StatefulWidget {
   /// The classification overlay widget.
   final BaseClassificationOverlay? classificationOverlay;
 
-  /// Whether to show the classification overlay.
-  final bool showClassificationOverlay;
-
   /// The controller for the camera preview.
   final UltralyticsYoloCameraController controller;
 
@@ -43,6 +40,9 @@ class UltralyticsYoloCameraPreview extends StatefulWidget {
 
   /// The placeholder widget displayed while the predictor is loading.
   final Widget? loadingPlaceholder;
+
+  /// Whether to show the detection/classification results.
+  final bool showResults;
 
   @override
   State<UltralyticsYoloCameraPreview> createState() =>
@@ -104,7 +104,7 @@ class _UltralyticsYoloCameraPreviewState
 
             // Results
             () {
-              if (widget.predictor == null) {
+              if (!widget.showResults || widget.predictor == null) {
                 return widget.loadingPlaceholder ?? Container();
               }
 
