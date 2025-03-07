@@ -110,7 +110,7 @@ abstract class UltralyticsYoloPlatform extends PlatformInterface {
   }
 
   /// Start the recording.
-  Future<String?> startRecording() {
+  Future<void> startRecording() {
     throw UnimplementedError('startRecording has not been implemented.');
   }
 

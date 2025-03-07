@@ -39,6 +39,7 @@ public class VideoCapture: NSObject {
   private var isRecording = false
   private var currentRecordingURL: URL?
   private var recordingCompletionHandler: ((URL?, Error?) -> Void)?
+  private var currentPosition: AVCaptureDevice.Position = .back
 
   public override init() {
     super.init()
@@ -51,7 +52,9 @@ public class VideoCapture: NSObject {
     completion: @escaping (Bool) -> Void
   ) {
     print("DEBUG: Setting up video capture with position:", position)
-
+    
+    self.currentPosition = position
+    
     cameraQueue.async { [weak self] in
       guard let self = self else {
         DispatchQueue.main.async { completion(false) }
@@ -191,27 +194,37 @@ public class VideoCapture: NSObject {
       return
     }
     
-    let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0] as NSString
-    let fileName = "recording_\(Date().timeIntervalSince1970).mov"
-    let filePath = documentsPath.appendingPathComponent(fileName)
-    let fileURL = URL(fileURLWithPath: filePath)
+    // 고유한 파일 이름 생성: 타임스탬프 + UUID
+    let timestamp = Date().timeIntervalSince1970
+    let uuid = UUID().uuidString.prefix(8)
+    let fileName = "recording_\(timestamp)_\(uuid).mp4"
     
+    let tempDir = FileManager.default.temporaryDirectory
+    let fileURL = tempDir.appendingPathComponent(fileName)
+    
+    // 파일이 이미 존재하면 삭제
     try? FileManager.default.removeItem(at: fileURL)
     
     cameraQueue.async { [weak self] in
       guard let self = self else { return }
       
       if self.movieFileOutput.isRecording == false {
+        // 비디오 설정 구성
         if let connection = self.movieFileOutput.connection(with: .video) {
           connection.videoOrientation = .portrait
-          connection.isVideoMirrored = self.currentPosition == .front
+          connection.isVideoMirrored = self.currentPosition == AVCaptureDevice.Position.front
+          
+          // 비디오 안정화 설정 (가능한 경우)
+          if connection.isVideoStabilizationSupported {
+            connection.preferredVideoStabilizationMode = .auto
+          }
         }
         
         self.recordingCompletionHandler = completion
         self.currentRecordingURL = fileURL
         self.movieFileOutput.startRecording(to: fileURL, recordingDelegate: self)
         self.isRecording = true
-        print("DEBUG: Video recording started")
+        print("DEBUG: Video recording started to \(fileURL.path)")
       } else {
         DispatchQueue.main.async {
           completion(nil, NSError(domain: "VideoCapture", code: 101, userInfo: [NSLocalizedDescriptionKey: "녹화 시작 실패"]))

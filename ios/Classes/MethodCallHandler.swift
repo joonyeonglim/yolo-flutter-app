@@ -227,14 +227,16 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
 
   // 녹화 시작 메소드
   private func startRecording(result: @escaping FlutterResult) {
+    // 즉시 성공 응답을 전송 (비동기 작업 시작을 알림)
+    result("Started")
+    
+    // 녹화 작업은 백그라운드에서 계속 진행
     videoCapture.startRecording { (fileURL, error) in
+      // 여기서 결과는 이미 반환했으므로 단순히 로그만 기록
       if let error = error {
-        result(FlutterError(code: "RECORDING_ERROR", message: error.localizedDescription, details: nil))
+        print("DEBUG: Recording error occurred: \(error.localizedDescription)")
       } else if let fileURL = fileURL {
-        // 파일 경로를 반환
-        result(fileURL.path)
-      } else {
-        result(FlutterError(code: "RECORDING_ERROR", message: "Unknown error occurred", details: nil))
+        print("DEBUG: Recording started successfully: \(fileURL.path)")
       }
     }
   }

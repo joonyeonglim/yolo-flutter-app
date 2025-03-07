@@ -84,8 +84,8 @@ class UltralyticsYoloCameraController
   }
 
   /// Starts the recording
-  Future<String?> startRecording() async {
-    return _ultralyticsYoloPlatform.startRecording();
+  Future<void> startRecording() async {
+    await _ultralyticsYoloPlatform.startRecording();
   }
 
   /// Stops the recording
