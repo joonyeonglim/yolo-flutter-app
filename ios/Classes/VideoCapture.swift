@@ -31,9 +31,14 @@ public class VideoCapture: NSObject {
   public let captureSession = AVCaptureSession()
   let videoOutput = AVCaptureVideoDataOutput()
   let photoOutput = AVCapturePhotoOutput()
+  let movieFileOutput = AVCaptureMovieFileOutput()
   let cameraQueue = DispatchQueue(label: "camera-queue")
   public var lastCapturedPhoto: UIImage?
   public weak var nativeView: FLNativeView?
+  
+  private var isRecording = false
+  private var currentRecordingURL: URL?
+  private var recordingCompletionHandler: ((URL?, Error?) -> Void)?
 
   public override init() {
     super.init()
@@ -110,6 +115,11 @@ public class VideoCapture: NSObject {
           print("DEBUG: Added photo output")
         }
 
+        if self.captureSession.canAddOutput(self.movieFileOutput) {
+          self.captureSession.addOutput(self.movieFileOutput)
+          print("DEBUG: Added movie file output")
+        }
+
         let connection = self.videoOutput.connection(with: .video)
         connection?.videoOrientation = .portrait
         connection?.isVideoMirrored = position == .front
@@ -174,6 +184,62 @@ public class VideoCapture: NSObject {
       }
     }
   }
+
+  public func startRecording(completion: @escaping (URL?, Error?) -> Void) {
+    guard !isRecording else {
+      completion(nil, NSError(domain: "VideoCapture", code: 100, userInfo: [NSLocalizedDescriptionKey: "이미 녹화 중입니다"]))
+      return
+    }
+    
+    let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0] as NSString
+    let fileName = "recording_\(Date().timeIntervalSince1970).mov"
+    let filePath = documentsPath.appendingPathComponent(fileName)
+    let fileURL = URL(fileURLWithPath: filePath)
+    
+    try? FileManager.default.removeItem(at: fileURL)
+    
+    cameraQueue.async { [weak self] in
+      guard let self = self else { return }
+      
+      if self.movieFileOutput.isRecording == false {
+        if let connection = self.movieFileOutput.connection(with: .video) {
+          connection.videoOrientation = .portrait
+          connection.isVideoMirrored = self.currentPosition == .front
+        }
+        
+        self.recordingCompletionHandler = completion
+        self.currentRecordingURL = fileURL
+        self.movieFileOutput.startRecording(to: fileURL, recordingDelegate: self)
+        self.isRecording = true
+        print("DEBUG: Video recording started")
+      } else {
+        DispatchQueue.main.async {
+          completion(nil, NSError(domain: "VideoCapture", code: 101, userInfo: [NSLocalizedDescriptionKey: "녹화 시작 실패"]))
+        }
+      }
+    }
+  }
+  
+  public func stopRecording(completion: @escaping (URL?, Error?) -> Void) {
+    guard isRecording else {
+      completion(nil, NSError(domain: "VideoCapture", code: 102, userInfo: [NSLocalizedDescriptionKey: "녹화 중이 아닙니다"]))
+      return
+    }
+    
+    cameraQueue.async { [weak self] in
+      guard let self = self else { return }
+      
+      if self.movieFileOutput.isRecording {
+        self.recordingCompletionHandler = completion
+        self.movieFileOutput.stopRecording()
+      } else {
+        DispatchQueue.main.async {
+          self.isRecording = false
+          completion(nil, NSError(domain: "VideoCapture", code: 103, userInfo: [NSLocalizedDescriptionKey: "녹화가 이미 중지됨"]))
+        }
+      }
+    }
+  }
 }
 
 extension VideoCapture: AVCaptureVideoDataOutputSampleBufferDelegate {
@@ -198,5 +264,25 @@ extension VideoCapture: AVCapturePhotoCaptureDelegate {
 
     self.lastCapturedPhoto = image
     print("DEBUG: Photo captured successfully")
+  }
+}
+
+extension VideoCapture: AVCaptureFileOutputRecordingDelegate {
+  public func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
+    print("DEBUG: Recording started to \(fileURL.path)")
+  }
+  
+  public func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
+    isRecording = false
+    
+    if let error = error {
+      print("DEBUG: Recording error: \(error.localizedDescription)")
+      recordingCompletionHandler?(nil, error)
+    } else {
+      print("DEBUG: Recording finished successfully at \(outputFileURL.path)")
+      recordingCompletionHandler?(outputFileURL, nil)
+    }
+    
+    recordingCompletionHandler = nil
   }
 }

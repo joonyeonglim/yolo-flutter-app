@@ -19,6 +19,7 @@ class UltralyticsYoloCameraPreview extends StatefulWidget {
     this.boundingBoxesColorList = const [Colors.lightBlueAccent],
     this.classificationOverlay,
     this.loadingPlaceholder,
+    this.showClassificationOverlay = true,
     super.key,
   });
 
@@ -30,6 +31,9 @@ class UltralyticsYoloCameraPreview extends StatefulWidget {
 
   /// The classification overlay widget.
   final BaseClassificationOverlay? classificationOverlay;
+
+  /// Whether to show the classification overlay.
+  final bool showClassificationOverlay;
 
   /// The controller for the camera preview.
   final UltralyticsYoloCameraController controller;
@@ -125,23 +129,24 @@ class _UltralyticsYoloCameraPreviewState
                     },
                   );
                 case ImageClassifier:
-                  return widget.classificationOverlay ??
-                      StreamBuilder(
-                        stream: (widget.predictor! as ImageClassifier)
-                            .classificationResultStream,
-                        builder: (context, snapshot) {
-                          final classificationResults = snapshot.data;
+                  return StreamBuilder(
+                    stream: (widget.predictor! as ImageClassifier)
+                        .classificationResultStream,
+                    builder: (context, snapshot) {
+                      final classificationResults = snapshot.data;
 
-                          if (classificationResults == null ||
-                              classificationResults.isEmpty) {
-                            return Container();
-                          }
+                      if (classificationResults == null ||
+                          classificationResults.isEmpty ||
+                          !widget.showClassificationOverlay) {
+                        return Container();
+                      }
 
-                          return ClassificationResultOverlay(
+                      return widget.classificationOverlay ??
+                          ClassificationResultOverlay(
                             classificationResults: classificationResults,
                           );
-                        },
-                      );
+                    },
+                  );
                 default:
                   return Container();
               }

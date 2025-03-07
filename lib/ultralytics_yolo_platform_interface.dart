@@ -108,4 +108,14 @@ abstract class UltralyticsYoloPlatform extends PlatformInterface {
   Stream<double>? get fpsRateStream {
     throw UnimplementedError('fpsRateStream has not been implemented.');
   }
+
+  /// 비디오 녹화 시작
+  Future<String?> startRecording() {
+    throw UnimplementedError('startRecording has not been implemented.');
+  }
+
+  /// 비디오 녹화 중지 및 파일 경로 반환
+  Future<String?> stopRecording() {
+    throw UnimplementedError('stopRecording has not been implemented.');
+  }
 }

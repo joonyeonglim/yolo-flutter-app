@@ -71,6 +71,10 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
       closeCamera(args: args, result: result)
     case "detectImage", "classifyImage":
       predictOnImage(args: args, result: result)
+    case "startRecording":
+      startRecording(result: result)
+    case "stopRecording":
+      stopRecording(result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -219,5 +223,33 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
 
   public func on(fpsRate: Double) {
     fpsRateStreamHandler.sink(time: fpsRate)
+  }
+
+  // 녹화 시작 메소드
+  private func startRecording(result: @escaping FlutterResult) {
+    videoCapture.startRecording { (fileURL, error) in
+      if let error = error {
+        result(FlutterError(code: "RECORDING_ERROR", message: error.localizedDescription, details: nil))
+      } else if let fileURL = fileURL {
+        // 파일 경로를 반환
+        result(fileURL.path)
+      } else {
+        result(FlutterError(code: "RECORDING_ERROR", message: "Unknown error occurred", details: nil))
+      }
+    }
+  }
+
+  // 녹화 중지 메소드
+  private func stopRecording(result: @escaping FlutterResult) {
+    videoCapture.stopRecording { (fileURL, error) in
+      if let error = error {
+        result(FlutterError(code: "RECORDING_ERROR", message: error.localizedDescription, details: nil))
+      } else if let fileURL = fileURL {
+        // 파일 경로를 반환
+        result(fileURL.path)
+      } else {
+        result(FlutterError(code: "RECORDING_ERROR", message: "Unknown error occurred", details: nil))
+      }
+    }
   }
 }

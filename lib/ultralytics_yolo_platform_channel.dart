@@ -79,6 +79,16 @@ class PlatformChannelUltralyticsYolo implements UltralyticsYoloPlatform {
       .catchError((dynamic e) => e.toString());
 
   @override
+  Future<String?> startRecording() => methodChannel
+      .invokeMethod<String>('startRecording')
+      .catchError((dynamic e) => e.toString());
+
+  @override
+  Future<String?> stopRecording() => methodChannel
+      .invokeMethod<String>('stopRecording')
+      .catchError((dynamic e) => e.toString());
+
+  @override
   Stream<List<DetectedObject?>?> get detectionResultStream =>
       predictionResultsEventChannel.receiveBroadcastStream().map(
         (result) {
