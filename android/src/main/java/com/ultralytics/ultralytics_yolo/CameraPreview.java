@@ -12,14 +12,26 @@ import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
+import androidx.camera.video.FileOutputOptions;
+import androidx.camera.video.Recording;
+import androidx.camera.video.VideoCapture;
+import androidx.camera.video.VideoRecordEvent;
+import androidx.camera.video.Recorder;
+import androidx.camera.video.MediaStoreOutputOptions;
+import androidx.camera.video.Quality;
+import androidx.camera.video.QualitySelector;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import com.ultralytics.ultralytics_yolo.predict.Predictor;
 
+import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.concurrent.ExecutionException;
-
+import java.util.concurrent.Executor;
 
 public class CameraPreview {
     public final static Size CAMERA_PREVIEW_SIZE = new Size(640, 480);
@@ -30,9 +42,13 @@ public class CameraPreview {
     private Activity activity;
     private PreviewView mPreviewView;
     private boolean busy = false;
+    private VideoCapture<Recorder> videoCapture;
+    private Recording currentRecording;
+    private Executor cameraExecutor;
 
     public CameraPreview(Context context) {
         this.context = context;
+        this.cameraExecutor = ContextCompat.getMainExecutor(context);
     }
 
     public void openCamera(int facing, Activity activity, PreviewView mPreviewView) {
@@ -75,11 +91,22 @@ public class CameraPreview {
                 imageProxy.close();
             });
 
+            // 비디오 캡처 설정
+            Recorder recorder = new Recorder.Builder()
+                    .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
+                    .build();
+            videoCapture = VideoCapture.withOutput(recorder);
+
             // Unbind use cases before rebinding
             cameraProvider.unbindAll();
 
             // Bind use cases to camera
-            Camera camera = cameraProvider.bindToLifecycle((LifecycleOwner) activity, cameraSelector, cameraPreview, imageAnalysis);
+            Camera camera = cameraProvider.bindToLifecycle(
+                    (LifecycleOwner) activity, 
+                    cameraSelector, 
+                    cameraPreview, 
+                    imageAnalysis,
+                    videoCapture);
 
             cameraControl = camera.getCameraControl();
 
@@ -102,5 +129,53 @@ public class CameraPreview {
 
     public void setScaleFactor(double factor) {
         cameraControl.setZoomRatio((float)factor);
+    }
+
+    public void startRecording(RecordingCallback callback) {
+        if (videoCapture == null) {
+            callback.onError("비디오 캡처가 초기화되지 않았습니다");
+            return;
+        }
+
+        if (currentRecording != null) {
+            callback.onError("이미 녹화 중입니다");
+            return;
+        }
+
+        // 임시 파일 생성
+        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String fileName = "recording_" + timestamp + ".mp4";
+        File outputFile = new File(context.getCacheDir(), fileName);
+
+        FileOutputOptions fileOutputOptions = new FileOutputOptions.Builder(outputFile).build();
+
+        currentRecording = videoCapture.getOutput().prepareRecording(context, fileOutputOptions)
+                .start(cameraExecutor, videoRecordEvent -> {
+                    if (videoRecordEvent instanceof VideoRecordEvent.Start) {
+                        // 녹화 시작됨
+                        callback.onStarted();
+                    } else if (videoRecordEvent instanceof VideoRecordEvent.Finalize) {
+                        VideoRecordEvent.Finalize finalizeEvent = (VideoRecordEvent.Finalize) videoRecordEvent;
+                        if (finalizeEvent.hasError()) {
+                            callback.onError(finalizeEvent.getCause().getMessage());
+                        } else {
+                            // 녹화 완료
+                            callback.onFinished(outputFile.getAbsolutePath());
+                        }
+                        currentRecording = null;
+                    }
+                });
+    }
+
+    public void stopRecording() {
+        if (currentRecording != null) {
+            currentRecording.stop();
+        }
+    }
+
+    public interface RecordingCallback {
+        void onStarted();
+        void onFinished(String filePath);
+        void onError(String errorMessage);
     }
 }

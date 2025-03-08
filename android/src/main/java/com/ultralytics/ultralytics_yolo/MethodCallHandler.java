@@ -19,6 +19,7 @@ import com.ultralytics.ultralytics_yolo.predict.classify.TfliteClassifier;
 import com.ultralytics.ultralytics_yolo.predict.detect.Detector;
 import com.ultralytics.ultralytics_yolo.predict.detect.TfliteDetector;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -108,6 +109,12 @@ public class MethodCallHandler implements MethodChannel.MethodCallHandler {
                 break;
             case "setZoomRatio":
                 setScaleFactor(call, result);
+                break;
+            case "startRecording":
+                startRecording(result);
+                break;
+            case "stopRecording":
+                stopRecording(result);
                 break;
             default:
                 result.notImplemented();
@@ -345,6 +352,52 @@ public class MethodCallHandler implements MethodChannel.MethodCallHandler {
         if (factorObject != null) {
             final double factor = (double) factorObject;
             cameraPreview.setScaleFactor(factor);
+        }
+    }
+
+    private void startRecording(MethodChannel.Result result) {
+        // 즉시 성공 응답을 전송 (비동기 작업 시작을 알림)
+        result.success("Started");
+        
+        cameraPreview.startRecording(new CameraPreview.RecordingCallback() {
+            @Override
+            public void onStarted() {
+                // 녹화가 시작됨 - 이미 결과를 반환했으므로 로그만 기록
+                System.out.println("DEBUG: Recording started successfully");
+            }
+
+            @Override
+            public void onFinished(String filePath) {
+                // 녹화가 완료됨 - 이미 결과를 반환했으므로 로그만 기록
+                System.out.println("DEBUG: Recording finished successfully: " + filePath);
+            }
+
+            @Override
+            public void onError(String errorMessage) {
+                // 오류 발생 - 이미 결과를 반환했으므로 로그만 기록
+                System.out.println("DEBUG: Recording error occurred: " + errorMessage);
+            }
+        });
+    }
+
+    private void stopRecording(MethodChannel.Result result) {
+        cameraPreview.stopRecording();
+        
+        // 임시 파일 경로를 찾아 반환
+        File cacheDir = context.getCacheDir();
+        File[] files = cacheDir.listFiles((dir, name) -> name.startsWith("recording_") && name.endsWith(".mp4"));
+        
+        if (files != null && files.length > 0) {
+            // 가장 최근 파일 찾기
+            File latestFile = files[0];
+            for (File file : files) {
+                if (file.lastModified() > latestFile.lastModified()) {
+                    latestFile = file;
+                }
+            }
+            result.success(latestFile.getAbsolutePath());
+        } else {
+            result.error("RECORDING_ERROR", "녹화 파일을 찾을 수 없습니다", null);
         }
     }
 }
