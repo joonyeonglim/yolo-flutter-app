@@ -189,6 +189,7 @@ public class VideoCapture: NSObject {
       cameraQueue.async { [weak self] in
         guard let self = self else { return }
         
+        // 안전하게 세션 시작
         self.captureSession.startRunning()
         print("DEBUG: Camera started running")
         
@@ -242,6 +243,7 @@ public class VideoCapture: NSObject {
       if self.movieFileOutput.isRecording == false {
         // 현재 줌 팩터 저장 (참조용)
         let currentZoom = self.currentZoomFactor
+        print("DEBUG: Current zoom factor before recording: \(currentZoom)")
         
         // 비디오 설정 구성
         if let connection = self.movieFileOutput.connection(with: .video) {
@@ -252,21 +254,6 @@ public class VideoCapture: NSObject {
           if connection.isVideoStabilizationSupported {
             connection.preferredVideoStabilizationMode = .auto
           }
-          
-          // 녹화 시작 전 줌 레벨 명시적으로 유지
-          if let device = self.currentDevice {
-            do {
-              try device.lockForConfiguration()
-              // 현재 줌 팩터를 다시 한번 명시적으로 설정
-              device.videoZoomFactor = currentZoom
-              device.unlockForConfiguration()
-              print("DEBUG: Explicitly set zoom factor to \(currentZoom) for recording")
-            } catch {
-              print("DEBUG: Failed to configure device for recording: \(error)")
-            }
-          }
-          
-          print("DEBUG: Recording with current zoom factor: \(currentZoom)")
         }
         
         self.recordingCompletionHandler = completion

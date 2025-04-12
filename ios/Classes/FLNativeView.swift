@@ -61,29 +61,21 @@ public class FLNativeView: NSObject, FlutterPlatformView, VideoCaptureDelegate {
             self.previewView.layoutIfNeeded()
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-              self.videoCapture.start()
-              
               // YOLO 모델 추론 및 녹화를 위한 동일한 줌 팩터 설정
               let zoomFactor: CGFloat = 1.2
-              self.videoCapture.setZoomRatio(zoomFactor)
               
-              // 방금 설정한 줌 팩터를 녹화에도 적용하기 위해 세션 재구성
-              self.videoCapture.captureSession.beginConfiguration()
-              if let device = self.videoCapture.currentDevice {
-                do {
-                  try device.lockForConfiguration()
-                  device.videoZoomFactor = zoomFactor
-                  device.unlockForConfiguration()
-                } catch {
-                  print("DEBUG: Failed to set initial zoom: \(error)")
-                }
+              // 세션 시작
+              self.videoCapture.start()
+              print("DEBUG: Camera session started")
+              
+              // 세션이 시작된 후 줌 설정
+              DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                self.videoCapture.setZoomRatio(zoomFactor)
+                print("DEBUG: Set initial zoom factor to \(zoomFactor) for YOLO inference and recording")
+                
+                self.currentPosition = position
+                completion(true)
               }
-              self.videoCapture.captureSession.commitConfiguration()
-              
-              print("DEBUG: Set initial zoom factor to \(zoomFactor) for YOLO inference and recording")
-              
-              self.currentPosition = position
-              completion(true)
             }
           }
         } else {
@@ -128,7 +120,7 @@ public class FLNativeView: NSObject, FlutterPlatformView, VideoCaptureDelegate {
           oldPreviewLayer?.removeFromSuperlayer()
 
           // 더 긴 지연 시간으로 변경하여 리소스 해제 보장
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             // 이전 프리뷰 레이어가 아직 남아있다면 강제로 제거
             oldPreviewLayer?.removeFromSuperlayer()
             
