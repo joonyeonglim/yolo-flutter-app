@@ -125,7 +125,9 @@ public class ObjectClassifier: Predictor {
   }
 
   private func processObservations(for request: VNRequest, error: Error?) {
-    DispatchQueue.main.async {
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+    
       if let observation = request.results as? [VNCoreMLFeatureValueObservation] {
 
         // Get the MLMultiArray from the observation
@@ -175,7 +177,6 @@ public class ObjectClassifier: Predictor {
         } else {
           print("Failed to extract MLMultiArray from the observation.")
         }
-
       }
     }
   }
@@ -228,4 +229,13 @@ public class ObjectClassifier: Predictor {
     completion(recognitions)
   }
 
+  deinit {
+    print("DEBUG: ObjectClassifier is being deinitialized")
+    currentBuffer = nil
+    currentOnResultsListener = nil
+    currentOnInferenceTimeListener = nil
+    currentOnFpsRateListener = nil
+    visionRequest = nil
+    classifier = nil
+  }
 }

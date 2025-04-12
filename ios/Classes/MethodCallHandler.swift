@@ -192,6 +192,11 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
 
   private func closeCamera(args: [String: Any], result: @escaping FlutterResult) {
     videoCapture.stop()
+    
+    // 메모리 누수 방지를 위해 predictor 참조 제거
+    predictor = nil
+    print("DEBUG: Camera closed and predictor reference cleared")
+    
     result(nil)
   }
 
