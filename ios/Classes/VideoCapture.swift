@@ -40,8 +40,9 @@ public class VideoCapture: NSObject {
   private var currentRecordingURL: URL?
   private var recordingCompletionHandler: ((URL?, Error?) -> Void)?
   private var currentPosition: AVCaptureDevice.Position = .back
-  private var currentZoomFactor: CGFloat = 1.0
+  private var currentZoomFactor: CGFloat = 0.9
   private var currentDevice: AVCaptureDevice?
+  private var preRecordingZoomFactor: CGFloat = 0.9 // 녹화 시작 전 줌 팩터 저장용 변수
 
   public override init() {
     super.init()
@@ -97,8 +98,8 @@ public class VideoCapture: NSObject {
           device.whiteBalanceMode = .continuousAutoWhiteBalance
         }
         
-        // 만약 이전에 설정된 줌 팩터가 있으면 적용
-        if self.currentZoomFactor > 1.0 {
+        // 줌 팩터 적용 - 디폴트는 0.9
+        if self.currentZoomFactor != 0.9 {
           let maxZoomFactor = min(device.activeFormat.videoMaxZoomFactor, 5.0)
           device.videoZoomFactor = min(self.currentZoomFactor, maxZoomFactor)
         }
@@ -164,7 +165,7 @@ public class VideoCapture: NSObject {
   }
 
   public func setZoomRatio(_ zoomFactor: CGFloat) {
-    let zoomFactor = max(1.0, min(5.0, zoomFactor))
+    let zoomFactor = max(0.9, min(5.0, zoomFactor))
     
     cameraQueue.async { [weak self] in
       guard let self = self, let device = self.currentDevice else { return }
@@ -241,7 +242,7 @@ public class VideoCapture: NSObject {
       
       if self.movieFileOutput.isRecording == false {
         // 현재 줌 팩터 저장 (녹화 완료 후 복원을 위해)
-        let savedZoomFactor = self.currentZoomFactor
+        self.preRecordingZoomFactor = self.currentZoomFactor
         
         // 비디오 설정 구성
         if let connection = self.movieFileOutput.connection(with: .video) {
@@ -258,8 +259,10 @@ public class VideoCapture: NSObject {
             do {
               try device.lockForConfiguration()
               
-              // 현재 줌 팩터 그대로 사용
-              print("DEBUG: Maintaining zoom factor for recording: \(self.currentZoomFactor)")
+              // 녹화를 위해 0.9 줌 팩터 설정
+              device.videoZoomFactor = 0.9
+              self.currentZoomFactor = 0.9
+              print("DEBUG: Set zoom factor to 0.9 for recording (from previous \(self.preRecordingZoomFactor))")
               
               device.unlockForConfiguration()
             } catch {
@@ -291,17 +294,20 @@ public class VideoCapture: NSObject {
       guard let self = self else { return }
       
       if self.movieFileOutput.isRecording {
-        // 녹화 종료 후에도 현재 줌 팩터를 유지하기 위해 저장
-        let currentZoom = self.currentZoomFactor
-        
-        self.recordingCompletionHandler = { (url, error) in
-          // 녹화 종료 후 줌 설정 복원
+        self.recordingCompletionHandler = { [weak self] (url, error) in
+          guard let self = self else {
+            completion(url, error)
+            return
+          }
+          
+          // 녹화 종료 후 이전 줌 설정으로 복원
           if let device = self.currentDevice {
             do {
               try device.lockForConfiguration()
-              device.videoZoomFactor = currentZoom
+              device.videoZoomFactor = self.preRecordingZoomFactor
+              self.currentZoomFactor = self.preRecordingZoomFactor
               device.unlockForConfiguration()
-              print("DEBUG: Restored zoom factor after recording: \(currentZoom)")
+              print("DEBUG: Restored zoom factor to \(self.preRecordingZoomFactor) after recording")
             } catch {
               print("DEBUG: Failed to restore zoom after recording: \(error)")
             }
