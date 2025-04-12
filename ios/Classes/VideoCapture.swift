@@ -241,8 +241,8 @@ public class VideoCapture: NSObject {
       guard let self = self else { return }
       
       if self.movieFileOutput.isRecording == false {
-        // 현재 줌 팩터 저장 (녹화 완료 후 복원을 위해)
-        self.preRecordingZoomFactor = self.currentZoomFactor
+        // 현재 줌 팩터 저장 (참조용)
+        let currentZoom = self.currentZoomFactor
         
         // 비디오 설정 구성
         if let connection = self.movieFileOutput.connection(with: .video) {
@@ -254,21 +254,7 @@ public class VideoCapture: NSObject {
             connection.preferredVideoStabilizationMode = .auto
           }
           
-          // 녹화 시작 전 줌 레벨 확인 및 설정
-          if let device = self.currentDevice {
-            do {
-              try device.lockForConfiguration()
-              
-              // 녹화를 위해 1.0 줌 팩터 설정
-              device.videoZoomFactor = 1.0
-              self.currentZoomFactor = 1.0
-              print("DEBUG: Set zoom factor to 1.0 for recording (from previous \(self.preRecordingZoomFactor))")
-              
-              device.unlockForConfiguration()
-            } catch {
-              print("DEBUG: Failed to configure device for recording: \(error)")
-            }
-          }
+          print("DEBUG: Recording with current zoom factor: \(currentZoom)")
         }
         
         self.recordingCompletionHandler = completion
@@ -295,24 +281,6 @@ public class VideoCapture: NSObject {
       
       if self.movieFileOutput.isRecording {
         self.recordingCompletionHandler = { [weak self] (url, error) in
-          guard let self = self else {
-            completion(url, error)
-            return
-          }
-          
-          // 녹화 종료 후 이전 줌 설정으로 복원
-          if let device = self.currentDevice {
-            do {
-              try device.lockForConfiguration()
-              device.videoZoomFactor = self.preRecordingZoomFactor
-              self.currentZoomFactor = self.preRecordingZoomFactor
-              device.unlockForConfiguration()
-              print("DEBUG: Restored zoom factor to \(self.preRecordingZoomFactor) after recording")
-            } catch {
-              print("DEBUG: Failed to restore zoom after recording: \(error)")
-            }
-          }
-          
           // 원래의 콜백 호출
           completion(url, error)
         }

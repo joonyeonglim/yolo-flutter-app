@@ -63,9 +63,9 @@ public class FLNativeView: NSObject, FlutterPlatformView, VideoCaptureDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
               self.videoCapture.start()
               
-              // YOLO 모델 추론을 위한 기본 줌 팩터 설정
-              self.videoCapture.setZoomRatio(1.0)
-              print("DEBUG: Set initial zoom factor to 1.0 for YOLO inference")
+              // YOLO 모델 추론을 위한 줌 팩터 설정 - 화면을 좀 더 크게 표시
+              self.videoCapture.setZoomRatio(1.2)
+              print("DEBUG: Set initial zoom factor to 1.2 for YOLO inference")
               
               self.currentPosition = position
               completion(true)
