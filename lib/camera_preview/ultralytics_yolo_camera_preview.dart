@@ -53,8 +53,6 @@ class _UltralyticsYoloCameraPreviewState
     extends State<UltralyticsYoloCameraPreview> {
   final _ultralyticsYoloPlatform = UltralyticsYoloPlatform.instance;
 
-  double _currentZoomFactor = 1;
-
   final double _zoomSensitivity = 0.05;
 
   final double _minZoomLevel = 1;
@@ -156,30 +154,24 @@ class _UltralyticsYoloCameraPreviewState
             GestureDetector(
               onScaleUpdate: (details) {
                 if (details.pointerCount == 2) {
-                  // Calculate the new zoom factor
-                  var newZoomFactor = _currentZoomFactor * details.scale;
+                  final currentZoom = widget.controller.value.zoomRatio;
+                  
+                  var newZoomFactor = currentZoom * details.scale;
 
-                  // Adjust the sensitivity for zoom out
-                  if (newZoomFactor < _currentZoomFactor) {
-                    newZoomFactor = _currentZoomFactor -
+                  if (newZoomFactor < currentZoom) {
+                    newZoomFactor = currentZoom -
                         (_zoomSensitivity *
-                            (_currentZoomFactor - newZoomFactor));
+                            (currentZoom - newZoomFactor));
                   } else {
-                    newZoomFactor = _currentZoomFactor +
+                    newZoomFactor = currentZoom +
                         (_zoomSensitivity *
-                            (newZoomFactor - _currentZoomFactor));
+                            (newZoomFactor - currentZoom));
                   }
 
-                  // Limit the zoom factor to a range between
-                  // _minZoomLevel and _maxZoomLevel
                   final clampedZoomFactor =
                       max(_minZoomLevel, min(_maxZoomLevel, newZoomFactor));
 
-                  // Update the zoom factor
-                  _ultralyticsYoloPlatform.setZoomRatio(clampedZoomFactor);
-
-                  // Update the current zoom factor for the next update
-                  _currentZoomFactor = clampedZoomFactor;
+                  widget.controller.setZoomRatio(clampedZoomFactor);
                 }
               },
               child: Container(

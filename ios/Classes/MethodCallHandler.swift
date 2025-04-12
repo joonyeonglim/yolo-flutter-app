@@ -75,6 +75,8 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
       startRecording(result: result)
     case "stopRecording":
       stopRecording(result: result)
+    case "setZoomRatio":
+      setZoomRatio(args: args, result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -253,5 +255,16 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
         result(FlutterError(code: "RECORDING_ERROR", message: "Unknown error occurred", details: nil))
       }
     }
+  }
+
+  private func setZoomRatio(args: [String: Any], result: @escaping FlutterResult) {
+    guard let ratio = args["ratio"] as? Double else {
+      result(FlutterError(code: "INVALID_ARGS", message: "Invalid ratio argument", details: nil))
+      return
+    }
+    
+    print("DEBUG: Setting zoom ratio to \(ratio)")
+    videoCapture.setZoomRatio(CGFloat(ratio))
+    result("Success")
   }
 }

@@ -352,10 +352,16 @@ public class MethodCallHandler implements MethodChannel.MethodCallHandler {
         if (factorObject != null) {
             final double factor = (double) factorObject;
             cameraPreview.setScaleFactor(factor);
+            result.success("Success");
+        } else {
+            result.error("INVALID_ARGS", "Invalid zoom ratio", null);
         }
     }
 
     private void startRecording(MethodChannel.Result result) {
+        // 현재 줌 레벨 저장
+        final float currentZoom = cameraPreview.getCurrentZoomFactor();
+        
         // 즉시 성공 응답을 전송 (비동기 작업 시작을 알림)
         result.success("Started");
         
@@ -364,6 +370,14 @@ public class MethodCallHandler implements MethodChannel.MethodCallHandler {
             public void onStarted() {
                 // 녹화가 시작됨 - 이미 결과를 반환했으므로 로그만 기록
                 System.out.println("DEBUG: Recording started successfully");
+                
+                // 약간의 지연 후 줌 레벨 재설정 (필요한 경우)
+                if (currentZoom > 1.0f) {
+                    new android.os.Handler().postDelayed(() -> {
+                        cameraPreview.setScaleFactor(currentZoom);
+                        System.out.println("DEBUG: Reapplied zoom factor after recording started: " + currentZoom);
+                    }, 300);
+                }
             }
 
             @Override
@@ -381,7 +395,18 @@ public class MethodCallHandler implements MethodChannel.MethodCallHandler {
     }
 
     private void stopRecording(MethodChannel.Result result) {
+        // 현재 줌 레벨 저장
+        final float currentZoom = cameraPreview.getCurrentZoomFactor();
+        
         cameraPreview.stopRecording();
+        
+        // 녹화 종료 후 약간의 지연을 두고 줌 레벨 재설정 (필요한 경우)
+        if (currentZoom > 1.0f) {
+            new android.os.Handler().postDelayed(() -> {
+                cameraPreview.setScaleFactor(currentZoom);
+                System.out.println("DEBUG: Reapplied zoom factor after recording stopped: " + currentZoom);
+            }, 800);
+        }
         
         // 임시 파일 경로를 찾아 반환
         File cacheDir = context.getCacheDir();

@@ -45,6 +45,7 @@ public class CameraPreview {
     private VideoCapture<Recorder> videoCapture;
     private Recording currentRecording;
     private Executor cameraExecutor;
+    private float currentZoomFactor = 1.0f;
 
     public CameraPreview(Context context) {
         this.context = context;
@@ -109,6 +110,11 @@ public class CameraPreview {
                     videoCapture);
 
             cameraControl = camera.getCameraControl();
+            
+            // 이전에 저장된 줌 비율 적용
+            if (currentZoomFactor > 1.0f) {
+                cameraControl.setZoomRatio(currentZoomFactor);
+            }
 
             cameraPreview.setSurfaceProvider(mPreviewView.getSurfaceProvider());
 
@@ -128,7 +134,16 @@ public class CameraPreview {
     }
 
     public void setScaleFactor(double factor) {
-        cameraControl.setZoomRatio((float)factor);
+        if (cameraControl != null) {
+            float zoomFactor = (float)factor;
+            cameraControl.setZoomRatio(zoomFactor);
+            currentZoomFactor = zoomFactor;
+            System.out.println("DEBUG: Zoom factor set to " + currentZoomFactor);
+        }
+    }
+
+    public float getCurrentZoomFactor() {
+        return currentZoomFactor;
     }
 
     public void startRecording(RecordingCallback callback) {
@@ -142,6 +157,9 @@ public class CameraPreview {
             return;
         }
 
+        // 현재 줌 레벨 저장
+        final float savedZoomFactor = currentZoomFactor;
+
         // 임시 파일 생성
         String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
         String fileName = "recording_" + timestamp + ".mp4";
@@ -149,11 +167,21 @@ public class CameraPreview {
 
         FileOutputOptions fileOutputOptions = new FileOutputOptions.Builder(outputFile).build();
 
+        // 녹화를 시작하기 전 줌 레벨 유지
+        if (cameraControl != null && savedZoomFactor > 1.0f) {
+            System.out.println("DEBUG: Maintaining zoom factor for recording: " + savedZoomFactor);
+        }
+
         currentRecording = videoCapture.getOutput().prepareRecording(context, fileOutputOptions)
                 .start(cameraExecutor, videoRecordEvent -> {
                     if (videoRecordEvent instanceof VideoRecordEvent.Start) {
                         // 녹화 시작됨
                         callback.onStarted();
+                        
+                        // 녹화 시작 후 줌 레벨 재설정 (필요한 경우)
+                        if (cameraControl != null && savedZoomFactor > 1.0f) {
+                            cameraControl.setZoomRatio(savedZoomFactor);
+                        }
                     } else if (videoRecordEvent instanceof VideoRecordEvent.Finalize) {
                         VideoRecordEvent.Finalize finalizeEvent = (VideoRecordEvent.Finalize) videoRecordEvent;
                         if (finalizeEvent.hasError()) {
@@ -161,6 +189,12 @@ public class CameraPreview {
                         } else {
                             // 녹화 완료
                             callback.onFinished(outputFile.getAbsolutePath());
+                            
+                            // 녹화 종료 후 줌 레벨 복원
+                            if (cameraControl != null && savedZoomFactor > 1.0f) {
+                                cameraControl.setZoomRatio(savedZoomFactor);
+                                System.out.println("DEBUG: Restored zoom factor after recording: " + savedZoomFactor);
+                            }
                         }
                         currentRecording = null;
                     }
@@ -169,7 +203,19 @@ public class CameraPreview {
 
     public void stopRecording() {
         if (currentRecording != null) {
+            // 현재 줌 레벨 저장
+            final float savedZoomFactor = currentZoomFactor;
+            
             currentRecording.stop();
+            
+            // 녹화 종료 직후 줌 레벨 복원 시도
+            if (cameraControl != null && savedZoomFactor > 1.0f) {
+                // 약간의 지연 추가 (녹화 중지 처리 시간 고려)
+                new android.os.Handler().postDelayed(() -> {
+                    cameraControl.setZoomRatio(savedZoomFactor);
+                    System.out.println("DEBUG: Restored zoom factor after stopping recording: " + savedZoomFactor);
+                }, 500);
+            }
         }
     }
 

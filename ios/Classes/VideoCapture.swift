@@ -40,6 +40,8 @@ public class VideoCapture: NSObject {
   private var currentRecordingURL: URL?
   private var recordingCompletionHandler: ((URL?, Error?) -> Void)?
   private var currentPosition: AVCaptureDevice.Position = .back
+  private var currentZoomFactor: CGFloat = 1.0
+  private var currentDevice: AVCaptureDevice?
 
   public override init() {
     super.init()
@@ -81,6 +83,7 @@ public class VideoCapture: NSObject {
       do {
         // 개선된 카메라 장치 선택 로직 사용
         let device = bestCaptureDevice(position: position)
+        self.currentDevice = device
         
         // 카메라 장치 구성 최적화
         try device.lockForConfiguration()
@@ -93,6 +96,13 @@ public class VideoCapture: NSObject {
         if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
           device.whiteBalanceMode = .continuousAutoWhiteBalance
         }
+        
+        // 만약 이전에 설정된 줌 팩터가 있으면 적용
+        if self.currentZoomFactor > 1.0 {
+          let maxZoomFactor = min(device.activeFormat.videoMaxZoomFactor, 5.0)
+          device.videoZoomFactor = min(self.currentZoomFactor, maxZoomFactor)
+        }
+        
         device.unlockForConfiguration()
 
         let input = try AVCaptureDeviceInput(device: device)
@@ -153,6 +163,27 @@ public class VideoCapture: NSObject {
     }
   }
 
+  public func setZoomRatio(_ zoomFactor: CGFloat) {
+    let zoomFactor = max(1.0, min(5.0, zoomFactor))
+    
+    cameraQueue.async { [weak self] in
+      guard let self = self, let device = self.currentDevice else { return }
+      
+      do {
+        try device.lockForConfiguration()
+        
+        let maxZoomFactor = min(device.activeFormat.videoMaxZoomFactor, 5.0)
+        device.videoZoomFactor = min(zoomFactor, maxZoomFactor)
+        self.currentZoomFactor = device.videoZoomFactor
+        
+        device.unlockForConfiguration()
+        print("DEBUG: Zoom factor set to \(self.currentZoomFactor)")
+      } catch {
+        print("DEBUG: Failed to set zoom: \(error)")
+      }
+    }
+  }
+
   public func start() {
     if !captureSession.isRunning {
       cameraQueue.async { [weak self] in
@@ -209,6 +240,9 @@ public class VideoCapture: NSObject {
       guard let self = self else { return }
       
       if self.movieFileOutput.isRecording == false {
+        // 현재 줌 팩터 저장 (녹화 완료 후 복원을 위해)
+        let savedZoomFactor = self.currentZoomFactor
+        
         // 비디오 설정 구성
         if let connection = self.movieFileOutput.connection(with: .video) {
           connection.videoOrientation = .portrait
@@ -217,6 +251,20 @@ public class VideoCapture: NSObject {
           // 비디오 안정화 설정 (가능한 경우)
           if connection.isVideoStabilizationSupported {
             connection.preferredVideoStabilizationMode = .auto
+          }
+          
+          // 녹화 시작 전 줌 레벨 확인 및 설정
+          if let device = self.currentDevice {
+            do {
+              try device.lockForConfiguration()
+              
+              // 현재 줌 팩터 그대로 사용
+              print("DEBUG: Maintaining zoom factor for recording: \(self.currentZoomFactor)")
+              
+              device.unlockForConfiguration()
+            } catch {
+              print("DEBUG: Failed to configure device for recording: \(error)")
+            }
           }
         }
         
@@ -243,7 +291,26 @@ public class VideoCapture: NSObject {
       guard let self = self else { return }
       
       if self.movieFileOutput.isRecording {
-        self.recordingCompletionHandler = completion
+        // 녹화 종료 후에도 현재 줌 팩터를 유지하기 위해 저장
+        let currentZoom = self.currentZoomFactor
+        
+        self.recordingCompletionHandler = { (url, error) in
+          // 녹화 종료 후 줌 설정 복원
+          if let device = self.currentDevice {
+            do {
+              try device.lockForConfiguration()
+              device.videoZoomFactor = currentZoom
+              device.unlockForConfiguration()
+              print("DEBUG: Restored zoom factor after recording: \(currentZoom)")
+            } catch {
+              print("DEBUG: Failed to restore zoom after recording: \(error)")
+            }
+          }
+          
+          // 원래의 콜백 호출
+          completion(url, error)
+        }
+        
         self.movieFileOutput.stopRecording()
       } else {
         DispatchQueue.main.async {
