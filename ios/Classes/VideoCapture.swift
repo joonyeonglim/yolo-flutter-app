@@ -41,8 +41,7 @@ public class VideoCapture: NSObject {
   private var recordingCompletionHandler: ((URL?, Error?) -> Void)?
   private var currentPosition: AVCaptureDevice.Position = .back
   private var currentZoomFactor: CGFloat = 1.0
-  private var currentDevice: AVCaptureDevice?
-  private var preRecordingZoomFactor: CGFloat = 1.0 // 녹화 시작 전 줌 팩터 저장용 변수
+  public var currentDevice: AVCaptureDevice?
 
   public override init() {
     super.init()
@@ -252,6 +251,19 @@ public class VideoCapture: NSObject {
           // 비디오 안정화 설정 (가능한 경우)
           if connection.isVideoStabilizationSupported {
             connection.preferredVideoStabilizationMode = .auto
+          }
+          
+          // 녹화 시작 전 줌 레벨 명시적으로 유지
+          if let device = self.currentDevice {
+            do {
+              try device.lockForConfiguration()
+              // 현재 줌 팩터를 다시 한번 명시적으로 설정
+              device.videoZoomFactor = currentZoom
+              device.unlockForConfiguration()
+              print("DEBUG: Explicitly set zoom factor to \(currentZoom) for recording")
+            } catch {
+              print("DEBUG: Failed to configure device for recording: \(error)")
+            }
           }
           
           print("DEBUG: Recording with current zoom factor: \(currentZoom)")

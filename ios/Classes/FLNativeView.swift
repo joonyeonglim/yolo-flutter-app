@@ -63,9 +63,24 @@ public class FLNativeView: NSObject, FlutterPlatformView, VideoCaptureDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
               self.videoCapture.start()
               
-              // YOLO 모델 추론을 위한 줌 팩터 설정 - 화면을 좀 더 크게 표시
-              self.videoCapture.setZoomRatio(1.2)
-              print("DEBUG: Set initial zoom factor to 1.2 for YOLO inference")
+              // YOLO 모델 추론 및 녹화를 위한 동일한 줌 팩터 설정
+              let zoomFactor: CGFloat = 1.2
+              self.videoCapture.setZoomRatio(zoomFactor)
+              
+              // 방금 설정한 줌 팩터를 녹화에도 적용하기 위해 세션 재구성
+              self.videoCapture.captureSession.beginConfiguration()
+              if let device = self.videoCapture.currentDevice {
+                do {
+                  try device.lockForConfiguration()
+                  device.videoZoomFactor = zoomFactor
+                  device.unlockForConfiguration()
+                } catch {
+                  print("DEBUG: Failed to set initial zoom: \(error)")
+                }
+              }
+              self.videoCapture.captureSession.commitConfiguration()
+              
+              print("DEBUG: Set initial zoom factor to \(zoomFactor) for YOLO inference and recording")
               
               self.currentPosition = position
               completion(true)
