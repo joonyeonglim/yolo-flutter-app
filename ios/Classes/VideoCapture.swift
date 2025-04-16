@@ -42,6 +42,7 @@ public class VideoCapture: NSObject {
   private var currentPosition: AVCaptureDevice.Position = .back
   private var currentZoomFactor: CGFloat = 1.0
   public var currentDevice: AVCaptureDevice?
+  private var audioEnabled = true // 오디오 활성화 상태 추적
 
   public override init() {
     super.init()
@@ -109,6 +110,19 @@ public class VideoCapture: NSObject {
         if self.captureSession.canAddInput(input) {
           self.captureSession.addInput(input)
           print("DEBUG: Added camera input")
+        }
+
+        // 오디오 입력 설정
+        if self.audioEnabled, let audioDevice = AVCaptureDevice.default(for: .audio) {
+          do {
+            let audioInput = try AVCaptureDeviceInput(device: audioDevice)
+            if self.captureSession.canAddInput(audioInput) {
+              self.captureSession.addInput(audioInput)
+              print("DEBUG: Added audio input")
+            }
+          } catch {
+            print("DEBUG: Could not create audio input: \(error)")
+          }
         }
 
         // Set up video output
@@ -241,6 +255,11 @@ public class VideoCapture: NSObject {
       guard let self = self else { return }
       
       if self.movieFileOutput.isRecording == false {
+        // 오디오 입력이 없는 경우 추가
+        if self.audioEnabled && !self.hasAudioInput() {
+          self.addAudioInput()
+        }
+        
         // 현재 줌 팩터 저장 (참조용)
         let currentZoom = self.currentZoomFactor
         print("DEBUG: Current zoom factor before recording: \(currentZoom)")
@@ -292,6 +311,33 @@ public class VideoCapture: NSObject {
         }
       }
     }
+  }
+
+  // 오디오 입력이 있는지 확인하는 헬퍼 메서드
+  private func hasAudioInput() -> Bool {
+    return captureSession.inputs.contains { input in
+      guard let deviceInput = input as? AVCaptureDeviceInput else { return false }
+      return deviceInput.device.hasMediaType(.audio)
+    }
+  }
+  
+  // 오디오 입력을 추가하는 헬퍼 메서드
+  private func addAudioInput() {
+    captureSession.beginConfiguration()
+    
+    if let audioDevice = AVCaptureDevice.default(for: .audio) {
+      do {
+        let audioInput = try AVCaptureDeviceInput(device: audioDevice)
+        if captureSession.canAddInput(audioInput) {
+          captureSession.addInput(audioInput)
+          print("DEBUG: Added audio input for recording")
+        }
+      } catch {
+        print("DEBUG: Could not create audio input: \(error)")
+      }
+    }
+    
+    captureSession.commitConfiguration()
   }
 }
 
