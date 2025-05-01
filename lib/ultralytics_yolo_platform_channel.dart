@@ -89,6 +89,18 @@ class PlatformChannelUltralyticsYolo implements UltralyticsYoloPlatform {
       .catchError((dynamic e) => e.toString());
 
   @override
+  Future<Map<String, bool>> getSupportedFrameRates() async {
+    final result = await methodChannel.invokeMethod<Map<Object?, Object?>>('getSupportedFrameRates');
+    // Object 타입을 String과 bool로 변환
+    return result?.map((key, value) => MapEntry(key.toString(), value as bool)) ?? {};
+  }
+
+  @override
+  Future<String?> setFrameRate(int fps) => methodChannel
+      .invokeMethod<String>('setFrameRate', {'fps': fps})
+      .catchError((dynamic e) => e.toString());
+
+  @override
   Stream<List<DetectedObject?>?> get detectionResultStream =>
       predictionResultsEventChannel.receiveBroadcastStream().map(
         (result) {

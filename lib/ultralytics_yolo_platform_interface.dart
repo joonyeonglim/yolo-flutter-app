@@ -118,4 +118,14 @@ abstract class UltralyticsYoloPlatform extends PlatformInterface {
   Future<String?> stopRecording() {
     throw UnimplementedError('stopRecording has not been implemented.');
   }
+
+  /// Get the supported frame rates for the current camera.
+  Future<Map<String, bool>> getSupportedFrameRates() {
+    throw UnimplementedError('getSupportedFrameRates has not been implemented.');
+  }
+
+  /// Set the frame rate for the current camera.
+  Future<String?> setFrameRate(int fps) {
+    throw UnimplementedError('setFrameRate has not been implemented.');
+  }
 }

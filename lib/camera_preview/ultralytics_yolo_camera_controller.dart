@@ -8,6 +8,7 @@ class UltralyticsYoloCameraValue {
     required this.lensDirection,
     required this.strokeWidth,
     required this.zoomRatio,
+    this.frameRate = 30,
   });
 
   /// The direction of the camera lens
@@ -18,6 +19,9 @@ class UltralyticsYoloCameraValue {
   
   /// The current zoom ratio
   final double zoomRatio;
+  
+  /// The current frame rate (FPS)
+  final int frameRate;
 
   /// Creates a copy of this [UltralyticsYoloCameraValue] but with
   /// the given fields
@@ -25,11 +29,13 @@ class UltralyticsYoloCameraValue {
     int? lensDirection,
     double? strokeWidth,
     double? zoomRatio,
+    int? frameRate,
   }) =>
       UltralyticsYoloCameraValue(
         lensDirection: lensDirection ?? this.lensDirection,
         strokeWidth: strokeWidth ?? this.strokeWidth,
         zoomRatio: zoomRatio ?? this.zoomRatio,
+        frameRate: frameRate ?? this.frameRate,
       );
 }
 
@@ -43,6 +49,7 @@ class UltralyticsYoloCameraController
             lensDirection: 1,
             strokeWidth: 2.5,
             zoomRatio: 1.0,
+            frameRate: 30,
           ),
         );
 
@@ -102,6 +109,35 @@ class UltralyticsYoloCameraController
   /// Resets the zoom ratio to 1.0
   Future<void> resetZoom() async {
     return setZoomRatio(1.0);
+  }
+
+  /// Get the supported frame rates for the current camera
+  Future<Map<String, bool>> getSupportedFrameRates() async {
+    return await _ultralyticsYoloPlatform.getSupportedFrameRates();
+  }
+  
+  /// Set the frame rate (FPS) for the camera
+  Future<void> setFrameRate(int fps) async {
+    if (fps < 30 || fps > 120 || fps % 30 != 0) {
+      throw ArgumentError('Frame rate must be 30, 60, 90, or 120');
+    }
+    
+    try {
+      // Update state first
+      value = value.copyWith(frameRate: fps);
+      
+      // Apply frame rate through platform channel
+      final result = await _ultralyticsYoloPlatform.setFrameRate(fps);
+      
+      if (result != "Success") {
+        // Revert state if failed
+        value = value.copyWith(frameRate: value.frameRate);
+        throw Exception("Failed to set frame rate: $result");
+      }
+    } catch (e) {
+      // Revert state if error occurs
+      rethrow;
+    }
   }
 
   /// Closes the camera

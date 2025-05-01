@@ -43,6 +43,9 @@ public class VideoCapture: NSObject {
   private var currentZoomFactor: CGFloat = 1.0
   public var currentDevice: AVCaptureDevice?
   private var audioEnabled = true // 오디오 활성화 상태 추적
+  
+  // FPS 관련 속성 추가
+  private var currentFrameRate: Int = 30
 
   public override init() {
     super.init()
@@ -338,6 +341,63 @@ public class VideoCapture: NSObject {
     }
     
     captureSession.commitConfiguration()
+  }
+
+  public func getSupportedFrameRatesInfo() -> [String: Bool] {
+    let fpsValues = [30.0, 60.0, 90.0, 120.0]
+    var result = [String: Bool]()
+    
+    for fps in fpsValues {
+      let key = "\(Int(fps))fps"
+      result[key] = isFrameRateSupported(fps)
+    }
+    
+    return result
+  }
+
+  public func isFrameRateSupported(_ fps: Double) -> Bool {
+    guard let device = self.currentDevice else { return false }
+    
+    // 현재 활성화된 포맷의 프레임레이트 범위 확인
+    for range in device.activeFormat.videoSupportedFrameRateRanges {
+      if fps >= range.minFrameRate && fps <= range.maxFrameRate {
+        return true
+      }
+    }
+    
+    // 모든 포맷에서 확인
+    for format in device.formats {
+      for range in format.videoSupportedFrameRateRanges {
+        if fps >= range.minFrameRate && fps <= range.maxFrameRate {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  public func setFrameRate(_ fps: Int) -> Bool {
+    guard let device = self.currentDevice else { return false }
+    
+    // FPS가 지원되는지 확인
+    if !isFrameRateSupported(Double(fps)) {
+      print("DEBUG: \(fps) FPS is not supported by current device")
+      return false
+    }
+    
+    do {
+      try device.lockForConfiguration()
+      let duration = CMTime(value: 1, timescale: CMTimeScale(fps))
+      device.activeVideoMinFrameDuration = duration
+      device.activeVideoMaxFrameDuration = duration
+      self.currentFrameRate = fps
+      device.unlockForConfiguration()
+      print("DEBUG: Frame rate set to \(fps) FPS")
+      return true
+    } catch {
+      print("DEBUG: Failed to set frame rate: \(error)")
+      return false
+    }
   }
 }
 

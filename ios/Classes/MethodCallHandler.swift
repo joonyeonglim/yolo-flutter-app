@@ -77,6 +77,10 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
       stopRecording(result: result)
     case "setZoomRatio":
       setZoomRatio(args: args, result: result)
+    case "getSupportedFrameRates":
+      handleGetSupportedFrameRates(result: result)
+    case "setFrameRate":
+      handleSetFrameRate(args: args, result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -271,5 +275,26 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
     print("DEBUG: Setting zoom ratio to \(ratio)")
     videoCapture.setZoomRatio(CGFloat(ratio))
     result("Success")
+  }
+  
+  // FPS 관련 메서드 추가
+  private func handleGetSupportedFrameRates(result: @escaping FlutterResult) {
+    let supportedFrameRates = videoCapture.getSupportedFrameRatesInfo()
+    print("DEBUG: Supported frame rates: \(supportedFrameRates)")
+    result(supportedFrameRates)
+  }
+  
+  private func handleSetFrameRate(args: [String: Any], result: @escaping FlutterResult) {
+    guard let fps = args["fps"] as? Int else {
+      result(FlutterError(code: "INVALID_ARGS", message: "Invalid fps argument", details: nil))
+      return
+    }
+    
+    let success = videoCapture.setFrameRate(fps)
+    if success {
+      result("Success")
+    } else {
+      result(FlutterError(code: "FPS_ERROR", message: "Failed to set frame rate to \(fps)", details: nil))
+    }
   }
 }
