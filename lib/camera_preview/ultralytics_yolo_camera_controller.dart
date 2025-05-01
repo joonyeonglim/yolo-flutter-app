@@ -123,6 +123,16 @@ class UltralyticsYoloCameraController
     }
     
     try {
+      // 먼저 지원하는 FPS 확인
+      final supportedRates = await getSupportedFrameRates();
+      final fpsKey = '${fps}fps';
+      
+      // 요청한 FPS가 지원되지 않는 경우 경고 로그 출력
+      if (supportedRates[fpsKey] == false) {
+        print('⚠️ Warning: $fps FPS is not directly supported by this device.');
+        print('The camera will use the closest supported FPS or switch formats if possible.');
+      }
+      
       // Update state first
       value = value.copyWith(frameRate: fps);
       
@@ -135,7 +145,8 @@ class UltralyticsYoloCameraController
         throw Exception("Failed to set frame rate: $result");
       }
     } catch (e) {
-      // Revert state if error occurs
+      // 상태를 원래대로 되돌림
+      print('Error setting frame rate: $e');
       rethrow;
     }
   }

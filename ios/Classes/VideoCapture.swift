@@ -101,6 +101,42 @@ public class VideoCapture: NSObject {
           device.whiteBalanceMode = .continuousAutoWhiteBalance
         }
         
+        // 높은 프레임레이트를 지원하는 포맷을 선택
+        var bestFormat: AVCaptureDevice.Format? = nil
+        var maxFrameRate: Float64 = 0
+        
+        // 현재 디바이스에서 지원하는 모든 포맷 중에서 가장 높은 FPS를 지원하는 포맷 찾기
+        for format in device.formats {
+          // 현재 해상도 또는 그에 가까운 포맷만 고려
+          let formatDescription = format.formatDescription
+          let dimensions = CMVideoFormatDescriptionGetDimensions(formatDescription)
+          let width = Int(dimensions.width)
+          let height = Int(dimensions.height)
+          
+          // 최소 720p 이상의 해상도 (너무 낮은 해상도는 제외)
+          if width >= 1280 && height >= 720 {
+            // 각 포맷의 최대 지원 프레임레이트 확인
+            for range in format.videoSupportedFrameRateRanges {
+              if range.maxFrameRate > maxFrameRate {
+                bestFormat = format
+                maxFrameRate = range.maxFrameRate
+              }
+            }
+          }
+        }
+        
+        // 더 좋은 포맷을 찾았다면 적용
+        if let format = bestFormat, maxFrameRate > 30 {
+          device.activeFormat = format
+          print("DEBUG: Selected format with max frame rate: \(maxFrameRate) FPS")
+          
+          // 기본 FPS를 30으로 설정
+          let duration = CMTime(value: 1, timescale: 30)
+          device.activeVideoMinFrameDuration = duration
+          device.activeVideoMaxFrameDuration = duration
+          self.currentFrameRate = 30
+        }
+        
         // 줌 팩터 적용 - 디폴트는 1.0
         if self.currentZoomFactor != 1.0 {
           let maxZoomFactor = min(device.activeFormat.videoMaxZoomFactor, 5.0)
@@ -352,18 +388,12 @@ public class VideoCapture: NSObject {
       result[key] = isFrameRateSupported(fps)
     }
     
+    print("DEBUG: Supported frame rates: \(result)")
     return result
   }
 
   public func isFrameRateSupported(_ fps: Double) -> Bool {
     guard let device = self.currentDevice else { return false }
-    
-    // 현재 활성화된 포맷의 프레임레이트 범위 확인
-    for range in device.activeFormat.videoSupportedFrameRateRanges {
-      if fps >= range.minFrameRate && fps <= range.maxFrameRate {
-        return true
-      }
-    }
     
     // 모든 포맷에서 확인
     for format in device.formats {
@@ -376,23 +406,95 @@ public class VideoCapture: NSObject {
     return false
   }
 
+  // 특정 FPS를 지원하는 최적의 포맷 찾기
+  private func findFormatSupportingFrameRate(_ fps: Double) -> AVCaptureDevice.Format? {
+    guard let device = self.currentDevice else { return nil }
+    
+    // 현재 해상도 가져오기
+    let currentDimensions = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+    let currentResolution = currentDimensions.width * currentDimensions.height
+    
+    var bestFormat: AVCaptureDevice.Format? = nil
+    var bestResolutionMatch: Int = Int.max
+    
+    for format in device.formats {
+      // 이 포맷이 원하는 fps를 지원하는지 확인
+      let ranges = format.videoSupportedFrameRateRanges
+      let supportsFrameRate = ranges.contains { range in
+        return fps >= range.minFrameRate && fps <= range.maxFrameRate
+      }
+      
+      if supportsFrameRate {
+        let formatDimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+        let formatResolution = formatDimensions.width * formatDimensions.height
+        let resolutionDiff = abs(Int(formatResolution) - Int(currentResolution))
+        
+        // 이전에 찾은 포맷보다 현재 해상도에 더 가까운 포맷인 경우 업데이트
+        if bestFormat == nil || resolutionDiff < bestResolutionMatch {
+          bestFormat = format
+          bestResolutionMatch = resolutionDiff
+        }
+      }
+    }
+    
+    return bestFormat
+  }
+  
   public func setFrameRate(_ fps: Int) -> Bool {
     guard let device = self.currentDevice else { return false }
     
-    // FPS가 지원되는지 확인
-    if !isFrameRateSupported(Double(fps)) {
-      print("DEBUG: \(fps) FPS is not supported by current device")
-      return false
+    // 먼저 현재 포맷이 이 FPS를 지원하는지 확인
+    var currentFormatSupported = false
+    for range in device.activeFormat.videoSupportedFrameRateRanges {
+      if Double(fps) >= range.minFrameRate && Double(fps) <= range.maxFrameRate {
+        currentFormatSupported = true
+        break
+      }
     }
     
+    // 현재 포맷이 지원하지 않는 경우, 지원하는 포맷을 찾음
+    if !currentFormatSupported {
+      print("DEBUG: Current format does not support \(fps) FPS, searching for compatible format...")
+      
+      guard let newFormat = findFormatSupportingFrameRate(Double(fps)) else {
+        print("DEBUG: No format found supporting \(fps) FPS")
+        return false
+      }
+      
+      // 새 포맷으로 전환
+      do {
+        try device.lockForConfiguration()
+        device.activeFormat = newFormat
+        device.unlockForConfiguration()
+        
+        let dimensions = CMVideoFormatDescriptionGetDimensions(newFormat.formatDescription)
+        print("DEBUG: Switched to format with resolution \(dimensions.width)x\(dimensions.height) supporting \(fps) FPS")
+      } catch {
+        print("DEBUG: Failed to switch format: \(error)")
+        return false
+      }
+    }
+    
+    // 이제 FPS를 설정
     do {
       try device.lockForConfiguration()
-      let duration = CMTime(value: 1, timescale: CMTimeScale(fps))
+      
+      // 30프레임 디바이스에서 그 이상을 요청한 경우 최대 프레임레이트로 제한
+      var targetFps = fps
+      let maxSupportedFps = Int(device.activeFormat.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 30.0)
+      
+      if targetFps > maxSupportedFps {
+        print("DEBUG: Requested \(fps) FPS, but device only supports up to \(maxSupportedFps) FPS. Using \(maxSupportedFps) FPS instead.")
+        targetFps = maxSupportedFps
+      }
+      
+      let duration = CMTime(value: 1, timescale: CMTimeScale(targetFps))
       device.activeVideoMinFrameDuration = duration
       device.activeVideoMaxFrameDuration = duration
-      self.currentFrameRate = fps
+      self.currentFrameRate = targetFps
+      
       device.unlockForConfiguration()
-      print("DEBUG: Frame rate set to \(fps) FPS")
+      print("DEBUG: Frame rate set to \(targetFps) FPS")
       return true
     } catch {
       print("DEBUG: Failed to set frame rate: \(error)")
