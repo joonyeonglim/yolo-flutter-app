@@ -2,6 +2,20 @@ import AVFoundation
 import CoreVideo
 import UIKit
 
+// FourCharCode 확장 - 포맷 타입 코드를 문자열로 변환
+extension FourCharCode {
+  func toString() -> String {
+    let bytes: [CChar] = [
+      CChar((self >> 24) & 0xFF),
+      CChar((self >> 16) & 0xFF),
+      CChar((self >> 8) & 0xFF),
+      CChar(self & 0xFF),
+      0
+    ]
+    return String(cString: bytes)
+  }
+}
+
 public protocol VideoCaptureDelegate: AnyObject {
   func videoCapture(_ capture: VideoCapture, didCaptureVideoFrame: CMSampleBuffer)
 }
@@ -314,9 +328,20 @@ public class VideoCapture: NSObject {
           connection.videoOrientation = .portrait
           connection.isVideoMirrored = self.currentPosition == AVCaptureDevice.Position.front
           
-          // 비디오 안정화 설정 (가능한 경우)
-          if connection.isVideoStabilizationSupported {
-            connection.preferredVideoStabilizationMode = .auto
+          // 슬로우 모션 모드인 경우 추가 설정
+          if self.isSlowMotionEnabled {
+            print("DEBUG: 슬로우 모션 모드로 녹화 시작 - \(self.currentFrameRate) FPS")
+            
+            // 슬로우 모션 녹화용 설정 적용
+            // 참고: 이 설정은 일부 기기에서만 작동할 수 있음
+            if connection.isVideoStabilizationSupported {
+              connection.preferredVideoStabilizationMode = .auto
+            }
+          } else {
+            // 비디오 안정화 설정 (가능한 경우)
+            if connection.isVideoStabilizationSupported {
+              connection.preferredVideoStabilizationMode = .auto
+            }
           }
         }
         
@@ -512,31 +537,67 @@ public class VideoCapture: NSObject {
   private func findSlowMotionFormat() -> AVCaptureDevice.Format? {
     guard let device = self.currentDevice else { return nil }
     
+    print("DEBUG: ===== 카메라 장치 정보 =====")
+    print("DEBUG: 현재 카메라: \(device.localizedName)")
+    print("DEBUG: 모델 ID: \(device.modelID)")
+    print("DEBUG: 모든 포맷 정보 출력 시작:")
+    
+    // 모든 포맷 정보를 출력하여 디버깅
+    var allFormatsInfo = ""
+    for (index, format) in device.formats.enumerated() {
+      let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+      let frameRates = format.videoSupportedFrameRateRanges.map { "\($0.minFrameRate)-\($0.maxFrameRate)" }.joined(separator: ", ")
+      let formatTypeStr = CMFormatDescriptionGetMediaSubType(format.formatDescription).toString()
+      
+      allFormatsInfo += "포맷 #\(index): \(dimensions.width)x\(dimensions.height) \(formatTypeStr), FPS: [\(frameRates)]\n"
+    }
+    print("DEBUG: \(allFormatsInfo)")
+    
+    // 1. 먼저 SlowMo 전용 포맷 찾기 (Slo-mo가 이름에 있거나 240fps를 지원하는 포맷)
     var bestFormat: AVCaptureDevice.Format? = nil
     var bestFrameRate: Float64 = 0
     
-    print("DEBUG: 사용 가능한 모든 포맷 확인:")
+    // 슬로우 모션 모드 전용 포맷 검색 (240fps 지원 우선)
     for format in device.formats {
       let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+      let formatDescription = CMFormatDescriptionGetMediaSubType(format.formatDescription).toString()
       
-      // 각 포맷의 프레임레이트 범위 출력
+      // 포맷의 프레임 레이트 범위 확인
       for range in format.videoSupportedFrameRateRanges {
-        print("DEBUG: 포맷 \(dimensions.width)x\(dimensions.height) - FPS 범위: \(range.minFrameRate)-\(range.maxFrameRate)")
-        
-        // 프레임레이트가 120 이상인 포맷을 찾음 (해상도 제한 없이)
-        if range.maxFrameRate >= 120 && range.maxFrameRate > bestFrameRate {
-          bestFormat = format
-          bestFrameRate = range.maxFrameRate
-          print("DEBUG: ✅ 슬로우 모션 후보 포맷 발견: \(dimensions.width)x\(dimensions.height) @ \(bestFrameRate)fps")
+        // 240fps 혹은 120fps를 지원하는 포맷 찾기
+        if range.maxFrameRate >= 120 {
+          // 현재까지 찾은 것보다 프레임레이트가 높으면 업데이트
+          if range.maxFrameRate > bestFrameRate {
+            bestFormat = format
+            bestFrameRate = range.maxFrameRate
+            print("DEBUG: ✅ 슬로우 모션 포맷 발견: \(dimensions.width)x\(dimensions.height) \(formatDescription) @ \(bestFrameRate)fps")
+          }
+          // 같은 프레임레이트라면 해상도가 더 높은 것을 선택
+          else if range.maxFrameRate == bestFrameRate && bestFormat != nil {
+            let bestDimensions = CMVideoFormatDescriptionGetDimensions(bestFormat!.formatDescription)
+            let bestResolution = bestDimensions.width * bestDimensions.height
+            let currentResolution = dimensions.width * dimensions.height
+            
+            if currentResolution > bestResolution {
+              bestFormat = format
+              print("DEBUG: ✅ 더 높은 해상도의 슬로우 모션 포맷 발견: \(dimensions.width)x\(dimensions.height) \(formatDescription) @ \(bestFrameRate)fps")
+            }
+          }
         }
       }
     }
     
     if let format = bestFormat {
       let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-      print("DEBUG: 선택된 슬로우 모션 포맷: \(dimensions.width)x\(dimensions.height) @ \(bestFrameRate)fps")
+      let formatTypeStr = CMFormatDescriptionGetMediaSubType(format.formatDescription).toString()
+      print("DEBUG: 🎯 선택된 슬로우 모션 포맷: \(dimensions.width)x\(dimensions.height) \(formatTypeStr), \(bestFrameRate)fps")
+      
+      // 이 포맷의 프레임레이트 범위 출력
+      for range in format.videoSupportedFrameRateRanges {
+        print("DEBUG: 지원 프레임레이트 범위: \(range.minFrameRate) - \(range.maxFrameRate)fps")
+      }
     } else {
-      print("DEBUG: ⚠️ 슬로우 모션 포맷을 찾을 수 없습니다")
+      print("DEBUG: ⚠️ 슬로우 모션을 지원하는 포맷을 찾을 수 없습니다")
     }
     
     return bestFormat
@@ -583,8 +644,37 @@ public class VideoCapture: NSObject {
       
       if enable {
         print("DEBUG: 슬로우 모션 모드 활성화 시도 중...")
+        
+        // 현재 카메라 입력 객체 백업
+        var currentInput: AVCaptureDeviceInput? = nil
+        for input in captureSession.inputs {
+          if let deviceInput = input as? AVCaptureDeviceInput, 
+             deviceInput.device.hasMediaType(AVMediaType.video) {
+            currentInput = deviceInput
+            break
+          }
+        }
+        
+        // 현재 입력이 있으면 제거
+        if let currentInput = currentInput {
+          captureSession.removeInput(currentInput)
+        }
+        
+        // 기존 세션 설정 백업
+        let previousPreset = captureSession.sessionPreset
+        
+        // SlowMo 전용 프리셋으로 설정
+        // 이 프리셋은 일반적으로 240fps를 지원하는 포맷을 사용
+        captureSession.sessionPreset = AVCaptureSession.Preset.hd720
+        
         // 슬로우 모션 모드 활성화 (120fps 또는 240fps)
         guard let slowMotionFormat = findSlowMotionFormat() else {
+          // 실패 시 원래 설정으로 복원
+          captureSession.sessionPreset = previousPreset
+          if let currentInput = currentInput, captureSession.canAddInput(currentInput) {
+            captureSession.addInput(currentInput)
+          }
+          
           print("DEBUG: ❌ 슬로우 모션 포맷을 찾을 수 없어 활성화 실패")
           captureSession.commitConfiguration()
           return false
@@ -618,9 +708,55 @@ public class VideoCapture: NSObject {
         
         device.unlockForConfiguration()
         
+        // 새 입력 추가
+        if let currentInput = currentInput {
+          if captureSession.canAddInput(currentInput) {
+            captureSession.addInput(currentInput)
+          } else {
+            do {
+              // 새 입력 생성 시도
+              let newInput = try AVCaptureDeviceInput(device: device)
+              if captureSession.canAddInput(newInput) {
+                captureSession.addInput(newInput)
+              }
+            } catch {
+              print("DEBUG: ❌ 카메라 입력 재설정 오류: \(error)")
+            }
+          }
+        } else {
+          do {
+            // 새 입력 생성 시도
+            let newInput = try AVCaptureDeviceInput(device: device)
+            if captureSession.canAddInput(newInput) {
+              captureSession.addInput(newInput)
+            }
+          } catch {
+            print("DEBUG: ❌ 카메라 입력 설정 오류: \(error)")
+          }
+        }
+        
         print("DEBUG: ✅ 슬로우 모션 활성화 성공: \(targetFrameRate) FPS")
       } else {
         print("DEBUG: 일반 비디오 모드로 복귀 중...")
+        
+        // 현재 카메라 입력 객체 백업
+        var currentInput: AVCaptureDeviceInput? = nil
+        for input in captureSession.inputs {
+          if let deviceInput = input as? AVCaptureDeviceInput, 
+             deviceInput.device.hasMediaType(AVMediaType.video) {
+            currentInput = deviceInput
+            break
+          }
+        }
+        
+        // 현재 입력이 있으면 제거
+        if let currentInput = currentInput {
+          captureSession.removeInput(currentInput)
+        }
+        
+        // 기본 세션 프리셋으로 복원
+        captureSession.sessionPreset = AVCaptureSession.Preset.high
+        
         // 슬로우 모션 모드 비활성화 (일반 녹화로 돌아감)
         guard let normalFormat = findNormalVideoFormat() else {
           print("DEBUG: ❌ 일반 비디오 포맷을 찾을 수 없어 비활성화 실패")
@@ -651,6 +787,23 @@ public class VideoCapture: NSObject {
         self.isSlowMotionEnabled = false
         
         device.unlockForConfiguration()
+        
+        // 새 입력 추가
+        if let currentInput = currentInput {
+          if captureSession.canAddInput(currentInput) {
+            captureSession.addInput(currentInput)
+          } else {
+            do {
+              // 새 입력 생성 시도
+              let newInput = try AVCaptureDeviceInput(device: device)
+              if captureSession.canAddInput(newInput) {
+                captureSession.addInput(newInput)
+              }
+            } catch {
+              print("DEBUG: ❌ 카메라 입력 재설정 오류: \(error)")
+            }
+          }
+        }
         
         print("DEBUG: ✅ 일반 비디오 모드 복귀 성공: 30 FPS")
       }
@@ -683,6 +836,18 @@ public class VideoCapture: NSObject {
   // 현재 슬로우 모션 활성화 상태 확인
   public func isSlowMotionActive() -> Bool {
     return isSlowMotionEnabled
+  }
+  
+  // FPS 문자열 표시를 위한 확장 함수
+  private func getMaxFPSString() -> String {
+    let maxFPS = getMaxSlowMotionFrameRate()
+    if maxFPS >= 240 {
+      return "240fps"
+    } else if maxFPS >= 120 {
+      return "120fps"
+    } else {
+      return "\(maxFPS)fps"
+    }
   }
 }
 
