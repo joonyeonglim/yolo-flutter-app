@@ -9,6 +9,7 @@ class UltralyticsYoloCameraValue {
     required this.strokeWidth,
     required this.zoomRatio,
     this.frameRate = 30,
+    this.isSlowMotionEnabled = false,
   });
 
   /// The direction of the camera lens
@@ -22,6 +23,9 @@ class UltralyticsYoloCameraValue {
   
   /// The current frame rate (FPS)
   final int frameRate;
+  
+  /// Whether slow motion is enabled
+  final bool isSlowMotionEnabled;
 
   /// Creates a copy of this [UltralyticsYoloCameraValue] but with
   /// the given fields
@@ -30,12 +34,14 @@ class UltralyticsYoloCameraValue {
     double? strokeWidth,
     double? zoomRatio,
     int? frameRate,
+    bool? isSlowMotionEnabled,
   }) =>
       UltralyticsYoloCameraValue(
         lensDirection: lensDirection ?? this.lensDirection,
         strokeWidth: strokeWidth ?? this.strokeWidth,
         zoomRatio: zoomRatio ?? this.zoomRatio,
         frameRate: frameRate ?? this.frameRate,
+        isSlowMotionEnabled: isSlowMotionEnabled ?? this.isSlowMotionEnabled,
       );
 }
 
@@ -50,6 +56,7 @@ class UltralyticsYoloCameraController
             strokeWidth: 2.5,
             zoomRatio: 1.0,
             frameRate: 30,
+            isSlowMotionEnabled: false,
           ),
         );
 
@@ -149,6 +156,69 @@ class UltralyticsYoloCameraController
       print('Error setting frame rate: $e');
       rethrow;
     }
+  }
+
+  /// Check if slow motion recording is supported on the current device
+  Future<bool> isSlowMotionSupported() async {
+    return await _ultralyticsYoloPlatform.isSlowMotionSupported();
+  }
+  
+  /// Get the maximum supported frame rate for slow motion on the current device
+  Future<int> getMaxSlowMotionFrameRate() async {
+    return await _ultralyticsYoloPlatform.getMaxSlowMotionFrameRate();
+  }
+  
+  /// Toggle between normal recording and slow motion recording
+  Future<void> toggleSlowMotion() async {
+    final isCurrentlyEnabled = value.isSlowMotionEnabled;
+    return enableSlowMotion(!isCurrentlyEnabled);
+  }
+  
+  /// Enable or disable slow motion recording
+  Future<void> enableSlowMotion(bool enable) async {
+    // 현재 상태와 같으면 아무 작업도 하지 않음
+    if (value.isSlowMotionEnabled == enable) {
+      return;
+    }
+    
+    try {
+      // 먼저 슬로우 모션이 지원되는지 확인
+      if (enable && !(await isSlowMotionSupported())) {
+        throw UnsupportedError('Slow motion is not supported on this device');
+      }
+      
+      // 상태 업데이트
+      value = value.copyWith(isSlowMotionEnabled: enable);
+      
+      // 슬로우 모션 모드 변경
+      final result = await _ultralyticsYoloPlatform.enableSlowMotion(enable);
+      
+      if (result != "Success") {
+        // 실패한 경우 상태 되돌리기
+        value = value.copyWith(isSlowMotionEnabled: !enable);
+        throw Exception("Failed to ${enable ? 'enable' : 'disable'} slow motion: $result");
+      }
+      
+      // 성공한 경우 프레임레이트 업데이트
+      if (enable) {
+        // 슬로우 모션이 활성화된 경우 최대 프레임레이트 가져오기
+        final maxFps = await getMaxSlowMotionFrameRate();
+        if (maxFps > 0) {
+          value = value.copyWith(frameRate: maxFps);
+        }
+      } else {
+        // 슬로우 모션이 비활성화된 경우 30fps로 복귀
+        value = value.copyWith(frameRate: 30);
+      }
+    } catch (e) {
+      print('Error toggling slow motion: $e');
+      rethrow;
+    }
+  }
+  
+  /// Check if slow motion recording is currently active
+  Future<bool> isSlowMotionActive() async {
+    return await _ultralyticsYoloPlatform.isSlowMotionActive();
   }
 
   /// Closes the camera

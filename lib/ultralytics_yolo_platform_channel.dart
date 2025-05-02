@@ -101,6 +101,29 @@ class PlatformChannelUltralyticsYolo implements UltralyticsYoloPlatform {
       .catchError((dynamic e) => e.toString());
 
   @override
+  Future<bool> isSlowMotionSupported() async {
+    final result = await methodChannel.invokeMethod<bool>('isSlowMotionSupported');
+    return result ?? false;
+  }
+
+  @override
+  Future<int> getMaxSlowMotionFrameRate() async {
+    final result = await methodChannel.invokeMethod<int>('getMaxSlowMotionFrameRate');
+    return result ?? 0;
+  }
+
+  @override
+  Future<String?> enableSlowMotion(bool enable) => methodChannel
+      .invokeMethod<String>('enableSlowMotion', {'enable': enable})
+      .catchError((dynamic e) => e.toString());
+
+  @override
+  Future<bool> isSlowMotionActive() async {
+    final result = await methodChannel.invokeMethod<bool>('isSlowMotionActive');
+    return result ?? false;
+  }
+
+  @override
   Stream<List<DetectedObject?>?> get detectionResultStream =>
       predictionResultsEventChannel.receiveBroadcastStream().map(
         (result) {

@@ -81,6 +81,14 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
       handleGetSupportedFrameRates(result: result)
     case "setFrameRate":
       handleSetFrameRate(args: args, result: result)
+    case "isSlowMotionSupported":
+      handleIsSlowMotionSupported(result: result)
+    case "getMaxSlowMotionFrameRate":
+      handleGetMaxSlowMotionFrameRate(result: result)
+    case "enableSlowMotion":
+      handleEnableSlowMotion(args: args, result: result)
+    case "isSlowMotionActive":
+      handleIsSlowMotionActive(result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -296,5 +304,39 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
     } else {
       result(FlutterError(code: "FPS_ERROR", message: "Failed to set frame rate to \(fps)", details: nil))
     }
+  }
+
+  // 슬로우 모션 관련 메서드 추가
+  private func handleIsSlowMotionSupported(result: @escaping FlutterResult) {
+    let isSupported = videoCapture.isSlowMotionSupported()
+    print("DEBUG: Slow motion supported: \(isSupported)")
+    result(isSupported)
+  }
+  
+  private func handleGetMaxSlowMotionFrameRate(result: @escaping FlutterResult) {
+    let maxFrameRate = videoCapture.getMaxSlowMotionFrameRate()
+    print("DEBUG: Maximum slow motion frame rate: \(maxFrameRate)")
+    result(maxFrameRate)
+  }
+  
+  private func handleEnableSlowMotion(args: [String: Any], result: @escaping FlutterResult) {
+    guard let enable = args["enable"] as? Bool else {
+      result(FlutterError(code: "INVALID_ARGS", message: "Invalid argument: enable", details: nil))
+      return
+    }
+    
+    let success = videoCapture.enableSlowMotion(enable)
+    if success {
+      result("Success")
+    } else {
+      result(FlutterError(code: "SLOW_MOTION_ERROR", 
+                         message: enable ? "Failed to enable slow motion" : "Failed to disable slow motion", 
+                         details: nil))
+    }
+  }
+  
+  private func handleIsSlowMotionActive(result: @escaping FlutterResult) {
+    let isActive = videoCapture.isSlowMotionActive()
+    result(isActive)
   }
 }

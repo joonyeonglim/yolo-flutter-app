@@ -46,7 +46,8 @@ public class VideoCapture: NSObject {
   
   // FPS 관련 속성 추가
   private var currentFrameRate: Int = 30
-
+  private var isSlowMotionEnabled: Bool = false
+  
   public override init() {
     super.init()
     print("DEBUG: VideoCapture initialized")
@@ -500,6 +501,148 @@ public class VideoCapture: NSObject {
       print("DEBUG: Failed to set frame rate: \(error)")
       return false
     }
+  }
+
+  // 슬로우 모션 녹화를 위한 최적 포맷을 찾는 메서드
+  private func findSlowMotionFormat() -> AVCaptureDevice.Format? {
+    guard let device = self.currentDevice else { return nil }
+    
+    var bestFormat: AVCaptureDevice.Format? = nil
+    var bestFrameRate: Float64 = 0
+    
+    for format in device.formats {
+      // 슬로우 모션용 형식은 일반적으로 720p에서 지원됨
+      let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+      
+      // 슬로우 모션에 적합한 해상도인지 확인 (일반적으로 720p)
+      if dimensions.width == 1280 && dimensions.height == 720 {
+        for range in format.videoSupportedFrameRateRanges {
+          // 최소 120fps 이상 지원하는 포맷 찾기
+          if range.maxFrameRate >= 120 && range.maxFrameRate > bestFrameRate {
+            bestFormat = format
+            bestFrameRate = range.maxFrameRate
+          }
+        }
+      }
+    }
+    
+    print("DEBUG: Found slow motion format with max frame rate: \(bestFrameRate) FPS")
+    return bestFormat
+  }
+  
+  // 일반 비디오 포맷을 찾는 메서드 (기존 메서드와 구분)
+  private func findNormalVideoFormat(minResolution: (width: Int32, height: Int32) = (1920, 1080)) -> AVCaptureDevice.Format? {
+    guard let device = self.currentDevice else { return nil }
+    
+    var bestFormat: AVCaptureDevice.Format? = nil
+    var bestResolutionMatch: Int32 = 0
+    
+    for format in device.formats {
+      let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+      let resolution = dimensions.width * dimensions.height
+      
+      // 최소 해상도 이상이고, 최대 프레임레이트가 30 이상인 경우
+      if dimensions.width >= minResolution.width && dimensions.height >= minResolution.height {
+        for range in format.videoSupportedFrameRateRanges {
+          if range.maxFrameRate >= 30 && resolution > bestResolutionMatch {
+            bestFormat = format
+            bestResolutionMatch = resolution
+          }
+        }
+      }
+    }
+    
+    return bestFormat
+  }
+  
+  // 슬로우 모션 모드 활성화/비활성화 메서드
+  public func enableSlowMotion(_ enable: Bool) -> Bool {
+    guard let device = self.currentDevice else { return false }
+    
+    // 이미 원하는 상태면 변경 필요 없음
+    if isSlowMotionEnabled == enable {
+      return true
+    }
+    
+    do {
+      try device.lockForConfiguration()
+      
+      // 세션 재구성 시작
+      captureSession.beginConfiguration()
+      
+      if enable {
+        // 슬로우 모션 모드 활성화 (120fps 또는 240fps)
+        guard let slowMotionFormat = findSlowMotionFormat() else {
+          print("DEBUG: No slow motion format found")
+          device.unlockForConfiguration()
+          captureSession.commitConfiguration()
+          return false
+        }
+        
+        // 포맷 변경
+        device.activeFormat = slowMotionFormat
+        
+        // 프레임레이트 설정 (포맷의 최대값 또는 240fps 중 작은 값)
+        let maxFrameRate = Int(slowMotionFormat.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 120.0)
+        let targetFrameRate = min(240, maxFrameRate)
+        
+        // 프레임 듀레이션 설정
+        let frameDuration = CMTime(value: 1, timescale: CMTimeScale(targetFrameRate))
+        device.activeVideoMinFrameDuration = frameDuration
+        device.activeVideoMaxFrameDuration = frameDuration
+        
+        self.currentFrameRate = targetFrameRate
+        self.isSlowMotionEnabled = true
+        
+        print("DEBUG: Slow motion enabled with \(targetFrameRate) FPS")
+      } else {
+        // 슬로우 모션 모드 비활성화 (일반 녹화로 돌아감)
+        guard let normalFormat = findNormalVideoFormat() else {
+          print("DEBUG: No normal format found")
+          device.unlockForConfiguration()
+          captureSession.commitConfiguration()
+          return false
+        }
+        
+        // 포맷 변경
+        device.activeFormat = normalFormat
+        
+        // 30fps로 설정
+        let frameDuration = CMTime(value: 1, timescale: 30)
+        device.activeVideoMinFrameDuration = frameDuration
+        device.activeVideoMaxFrameDuration = frameDuration
+        
+        self.currentFrameRate = 30
+        self.isSlowMotionEnabled = false
+        
+        print("DEBUG: Slow motion disabled, normal video mode with 30 FPS")
+      }
+      
+      device.unlockForConfiguration()
+      captureSession.commitConfiguration()
+      return true
+    } catch {
+      print("DEBUG: Error configuring slow motion: \(error)")
+      return false
+    }
+  }
+  
+  // 슬로우 모션 지원 여부 확인
+  public func isSlowMotionSupported() -> Bool {
+    return findSlowMotionFormat() != nil
+  }
+  
+  // 디바이스가 지원하는 최대 슬로우 모션 프레임레이트 확인
+  public func getMaxSlowMotionFrameRate() -> Int {
+    guard let format = findSlowMotionFormat() else { return 0 }
+    
+    let maxFrameRate = Int(format.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 0.0)
+    return maxFrameRate
+  }
+  
+  // 현재 슬로우 모션 활성화 상태 확인
+  public func isSlowMotionActive() -> Bool {
+    return isSlowMotionEnabled
   }
 }
 

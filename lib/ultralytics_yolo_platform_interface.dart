@@ -128,4 +128,24 @@ abstract class UltralyticsYoloPlatform extends PlatformInterface {
   Future<String?> setFrameRate(int fps) {
     throw UnimplementedError('setFrameRate has not been implemented.');
   }
+
+  /// Check if slow motion recording is supported on the current device.
+  Future<bool> isSlowMotionSupported() {
+    throw UnimplementedError('isSlowMotionSupported has not been implemented.');
+  }
+  
+  /// Get the maximum supported frame rate for slow motion on the current device.
+  Future<int> getMaxSlowMotionFrameRate() {
+    throw UnimplementedError('getMaxSlowMotionFrameRate has not been implemented.');
+  }
+  
+  /// Enable or disable slow motion recording.
+  Future<String?> enableSlowMotion(bool enable) {
+    throw UnimplementedError('enableSlowMotion has not been implemented.');
+  }
+  
+  /// Check if slow motion recording is currently active.
+  Future<bool> isSlowMotionActive() {
+    throw UnimplementedError('isSlowMotionActive has not been implemented.');
+  }
 }
