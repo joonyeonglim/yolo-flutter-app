@@ -665,7 +665,7 @@ public class VideoCapture: NSObject {
         
         // SlowMo 전용 프리셋으로 설정
         // 이 프리셋은 일반적으로 240fps를 지원하는 포맷을 사용
-        captureSession.sessionPreset = AVCaptureSession.Preset.hd720
+        captureSession.sessionPreset = AVCaptureSession.Preset.hd1280x720
         
         // 슬로우 모션 모드 활성화 (120fps 또는 240fps)
         guard let slowMotionFormat = findSlowMotionFormat() else {
