@@ -207,6 +207,11 @@ public class VideoCapture: NSObject {
             connection.isVideoMirrored = position == .front
           }
 
+          // 카메라 설정 완료 후 슬로우 모션 지원 여부 확인
+          let slowMotionSupported = self.isSlowMotionSupported()
+          let maxSlowMotionFps = self.getMaxSlowMotionFrameRate()
+          print("DEBUG: 카메라 설정 완료 - 슬로우 모션 지원: \(slowMotionSupported), 최대 \(maxSlowMotionFps) FPS")
+
           completion(true)
         }
       } catch {
@@ -510,23 +515,30 @@ public class VideoCapture: NSObject {
     var bestFormat: AVCaptureDevice.Format? = nil
     var bestFrameRate: Float64 = 0
     
+    print("DEBUG: 사용 가능한 모든 포맷 확인:")
     for format in device.formats {
-      // 슬로우 모션용 형식은 일반적으로 720p에서 지원됨
       let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
       
-      // 슬로우 모션에 적합한 해상도인지 확인 (일반적으로 720p)
-      if dimensions.width == 1280 && dimensions.height == 720 {
-        for range in format.videoSupportedFrameRateRanges {
-          // 최소 120fps 이상 지원하는 포맷 찾기
-          if range.maxFrameRate >= 120 && range.maxFrameRate > bestFrameRate {
-            bestFormat = format
-            bestFrameRate = range.maxFrameRate
-          }
+      // 각 포맷의 프레임레이트 범위 출력
+      for range in format.videoSupportedFrameRateRanges {
+        print("DEBUG: 포맷 \(dimensions.width)x\(dimensions.height) - FPS 범위: \(range.minFrameRate)-\(range.maxFrameRate)")
+        
+        // 프레임레이트가 120 이상인 포맷을 찾음 (해상도 제한 없이)
+        if range.maxFrameRate >= 120 && range.maxFrameRate > bestFrameRate {
+          bestFormat = format
+          bestFrameRate = range.maxFrameRate
+          print("DEBUG: ✅ 슬로우 모션 후보 포맷 발견: \(dimensions.width)x\(dimensions.height) @ \(bestFrameRate)fps")
         }
       }
     }
     
-    print("DEBUG: Found slow motion format with max frame rate: \(bestFrameRate) FPS")
+    if let format = bestFormat {
+      let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+      print("DEBUG: 선택된 슬로우 모션 포맷: \(dimensions.width)x\(dimensions.height) @ \(bestFrameRate)fps")
+    } else {
+      print("DEBUG: ⚠️ 슬로우 모션 포맷을 찾을 수 없습니다")
+    }
+    
     return bestFormat
   }
   
@@ -561,23 +573,33 @@ public class VideoCapture: NSObject {
     
     // 이미 원하는 상태면 변경 필요 없음
     if isSlowMotionEnabled == enable {
+      print("DEBUG: 슬로우 모션 상태가 이미 \(enable ? "활성화" : "비활성화") 되어있습니다.")
       return true
     }
     
     do {
-      try device.lockForConfiguration()
-      
-      // 세션 재구성 시작
+      // 세션 재구성 시작 (중요: 이 단계에서 카메라 프리뷰가 잠시 중단될 수 있음)
       captureSession.beginConfiguration()
       
       if enable {
+        print("DEBUG: 슬로우 모션 모드 활성화 시도 중...")
         // 슬로우 모션 모드 활성화 (120fps 또는 240fps)
         guard let slowMotionFormat = findSlowMotionFormat() else {
-          print("DEBUG: No slow motion format found")
-          device.unlockForConfiguration()
+          print("DEBUG: ❌ 슬로우 모션 포맷을 찾을 수 없어 활성화 실패")
           captureSession.commitConfiguration()
           return false
         }
+        
+        // 포맷 변경 전 카메라 구성 잠금
+        try device.lockForConfiguration()
+        
+        // 현재 포맷 정보 로깅
+        let currentDimensions = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+        print("DEBUG: 현재 포맷: \(currentDimensions.width)x\(currentDimensions.height)")
+        
+        // 새 포맷 정보 로깅
+        let newDimensions = CMVideoFormatDescriptionGetDimensions(slowMotionFormat.formatDescription)
+        print("DEBUG: 슬로우 모션 포맷으로 변경: \(newDimensions.width)x\(newDimensions.height)")
         
         // 포맷 변경
         device.activeFormat = slowMotionFormat
@@ -594,15 +616,28 @@ public class VideoCapture: NSObject {
         self.currentFrameRate = targetFrameRate
         self.isSlowMotionEnabled = true
         
-        print("DEBUG: Slow motion enabled with \(targetFrameRate) FPS")
+        device.unlockForConfiguration()
+        
+        print("DEBUG: ✅ 슬로우 모션 활성화 성공: \(targetFrameRate) FPS")
       } else {
+        print("DEBUG: 일반 비디오 모드로 복귀 중...")
         // 슬로우 모션 모드 비활성화 (일반 녹화로 돌아감)
         guard let normalFormat = findNormalVideoFormat() else {
-          print("DEBUG: No normal format found")
-          device.unlockForConfiguration()
+          print("DEBUG: ❌ 일반 비디오 포맷을 찾을 수 없어 비활성화 실패")
           captureSession.commitConfiguration()
           return false
         }
+        
+        // 포맷 변경 전 카메라 구성 잠금
+        try device.lockForConfiguration()
+        
+        // 현재 포맷 정보 로깅
+        let currentDimensions = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+        print("DEBUG: 현재 포맷: \(currentDimensions.width)x\(currentDimensions.height)")
+        
+        // 새 포맷 정보 로깅
+        let newDimensions = CMVideoFormatDescriptionGetDimensions(normalFormat.formatDescription)
+        print("DEBUG: 일반 비디오 포맷으로 변경: \(newDimensions.width)x\(newDimensions.height)")
         
         // 포맷 변경
         device.activeFormat = normalFormat
@@ -615,21 +650,26 @@ public class VideoCapture: NSObject {
         self.currentFrameRate = 30
         self.isSlowMotionEnabled = false
         
-        print("DEBUG: Slow motion disabled, normal video mode with 30 FPS")
+        device.unlockForConfiguration()
+        
+        print("DEBUG: ✅ 일반 비디오 모드 복귀 성공: 30 FPS")
       }
       
-      device.unlockForConfiguration()
+      // 변경사항 적용
       captureSession.commitConfiguration()
       return true
     } catch {
-      print("DEBUG: Error configuring slow motion: \(error)")
+      print("DEBUG: ❌ 슬로우 모션 설정 오류: \(error)")
+      captureSession.commitConfiguration()
       return false
     }
   }
   
   // 슬로우 모션 지원 여부 확인
   public func isSlowMotionSupported() -> Bool {
-    return findSlowMotionFormat() != nil
+    let result = findSlowMotionFormat() != nil
+    print("DEBUG: 슬로우 모션 지원 여부: \(result)")
+    return result
   }
   
   // 디바이스가 지원하는 최대 슬로우 모션 프레임레이트 확인
