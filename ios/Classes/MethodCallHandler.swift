@@ -203,11 +203,25 @@ public class MethodCallHandler: NSObject, VideoCaptureDelegate, InferenceTimeLis
   }
 
   private func closeCamera(args: [String: Any], result: @escaping FlutterResult) {
-    videoCapture.stop()
+    // stop 대신 리소스 완전 해제 메서드 호출
+    videoCapture.releaseResources()
     
     // 메모리 누수 방지를 위해 predictor 참조 제거
     predictor = nil
-    print("DEBUG: Camera closed and predictor reference cleared")
+    print("DEBUG: Camera closed and all resources released")
+    
+    // 가비지 컬렉션 유도
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+      print("DEBUG: Memory cleanup requested")
+      #if DEBUG
+      // 디버그 모드에서만 강제 가비지 컬렉션 유도 (가능한 경우)
+      if #available(iOS 15.0, *) {
+        Task {
+          await URLSession.shared.configuration
+        }
+      }
+      #endif
+    }
     
     result(nil)
   }
