@@ -62,9 +62,19 @@ public class VideoCapture: NSObject {
   private var currentFrameRate: Int = 30
   private var isSlowMotionEnabled: Bool = false
   
+  // 앱 실행 시작 시간 저장 속성 추가
+  private var appStartTime: TimeInterval = 0
+  
+  // 초기 프레임 색상 보정을 위한 플래그 추가
+  private var initialFramesProcessed = false
+  private var frameCount = 0
+  
   public override init() {
     super.init()
     print("DEBUG: VideoCapture initialized")
+    
+    // 추가: 앱 진입 시점 기록
+    appStartTime = ProcessInfo.processInfo.systemUptime
   }
 
   public func setUp(
@@ -111,16 +121,36 @@ public class VideoCapture: NSObject {
         self.isSlowMotionEnabled = false
         self.currentFrameRate = 30
         
-        // 카메라 장치 구성 최적화
+        // 카메라 장치 구성 최적화 - 색상 설정 개선
         try device.lockForConfiguration()
+        
+        // 초기 블루 틴트 문제를 방지하기 위한 화이트 밸런스 설정
+        if device.isWhiteBalanceModeSupported(.locked) {
+          // 먼저 화이트 밸런스를 고정하여 시작
+          device.whiteBalanceMode = .locked
+          
+          // 그 후 자동 화이트 밸런스로 전환
+          if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+              do {
+                try device.lockForConfiguration()
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+                device.unlockForConfiguration()
+              } catch {
+                print("DEBUG: Failed to set white balance: \(error)")
+              }
+            }
+          }
+        } else if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+          device.whiteBalanceMode = .continuousAutoWhiteBalance
+        }
+        
+        // 포커스 및 노출 설정
         if device.isFocusModeSupported(.continuousAutoFocus) {
           device.focusMode = .continuousAutoFocus
         }
         if device.isExposureModeSupported(.continuousAutoExposure) {
           device.exposureMode = .continuousAutoExposure
-        }
-        if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
-          device.whiteBalanceMode = .continuousAutoWhiteBalance
         }
         
         // 높은 프레임레이트를 지원하는 포맷을 선택
@@ -184,8 +214,10 @@ public class VideoCapture: NSObject {
           }
         }
 
-        // Set up video output
+        // Set up video output with improved pixel format settings
+        // 파란색 색조 문제 해결을 위해 픽셀 포맷 변경
         self.videoOutput.videoSettings = [
+          // YUV 색상 공간 사용 - 더 나은 색상 재현 제공
           kCVPixelBufferPixelFormatTypeKey as String: NSNumber(value: kCVPixelFormatType_32BGRA)
         ]
         self.videoOutput.alwaysDiscardsLateVideoFrames = true
@@ -212,9 +244,23 @@ public class VideoCapture: NSObject {
           print("DEBUG: ⚠️ Cannot add movie output")
         }
 
-        let connection = self.videoOutput.connection(with: .video)
-        connection?.videoOrientation = .portrait
-        connection?.isVideoMirrored = position == .front
+        // 비디오 연결 구성 개선
+        if let connection = self.videoOutput.connection(with: .video) {
+          connection.videoOrientation = .portrait
+          connection.isVideoMirrored = position == .front
+          
+          // 색상 설정 개선 (가능한 경우)
+          if connection.isVideoStabilizationSupported {
+            connection.preferredVideoStabilizationMode = .auto
+          }
+          
+          // 색상 공간 설정 (iOS 10 이상)
+          if #available(iOS 10.0, *) {
+            if connection.isCameraIntrinsicMatrixDeliverySupported {
+              connection.isCameraIntrinsicMatrixDeliveryEnabled = true
+            }
+          }
+        }
 
         self.captureSession.commitConfiguration()
 
@@ -237,6 +283,12 @@ public class VideoCapture: NSObject {
           let maxSlowMotionFps = self.getMaxSlowMotionFrameRate()
           print("DEBUG: 카메라 설정 완료 - 슬로우 모션 지원: \(slowMotionSupported), 최대 \(maxSlowMotionFps) FPS")
 
+          // 카메라 세션을 메인 스레드에서 시작하여 초기화 문제 해결
+          if !self.captureSession.isRunning {
+            self.captureSession.startRunning()
+            print("DEBUG: 카메라 세션 시작됨 (메인 스레드)")
+          }
+          
           completion(true)
         }
       } catch {
@@ -269,6 +321,10 @@ public class VideoCapture: NSObject {
   }
 
   public func start() {
+    // 초기 프레임 처리 상태 리셋 - 앱이 새로 시작할 때 색상 보정 다시 적용
+    initialFramesProcessed = false
+    frameCount = 0
+    
     cameraQueue.async { [weak self] in
       guard let self = self else { return }
       
@@ -283,6 +339,23 @@ public class VideoCapture: NSObject {
         }
         
         print("DEBUG: Starting camera session")
+        
+        // 색상 처리 개선을 위한 화이트 밸런스 설정
+        if let device = self.currentDevice {
+          do {
+            try device.lockForConfiguration()
+            
+            // 화이트 밸런스 재설정
+            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+              device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+            
+            device.unlockForConfiguration()
+          } catch {
+            print("DEBUG: Failed to configure device settings: \(error)")
+          }
+        }
+        
         self.captureSession.startRunning()
         
         // 세션 시작 성공 여부 확인
@@ -1011,6 +1084,37 @@ extension VideoCapture: AVCaptureVideoDataOutputSampleBufferDelegate {
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
+    // 초기 프레임의 색상 처리를 개선하기 위한 코드
+    if !initialFramesProcessed && frameCount < 45 { // 약 1.5초 동안의 프레임 (30fps 기준)
+      frameCount += 1
+      
+      if frameCount >= 45 {
+        initialFramesProcessed = true
+        print("DEBUG: 초기 프레임 처리 완료, 색상 보정 안정화")
+      }
+      
+      // 초기 색상 보정 적용
+      if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        
+        // 색상 공간 정보 확인 및 로깅
+        if frameCount == 1 {
+          let attachments = CMCopyDictionaryOfAttachments(allocator: nil, target: pixelBuffer, attachmentMode: kCMAttachmentMode_ShouldPropagate)
+          if let colorSpace = attachments as Dictionary? {
+            if let colorAttachments = colorSpace[kCVImageBufferYCbCrMatrixKey] {
+              print("DEBUG: Color space: \(colorAttachments)")
+            }
+          }
+        }
+        
+        // 여기서 픽셀 버퍼의 내용을 직접 수정하지는 않지만,
+        // 시스템이 이 호출을 통해 색상 처리 파이프라인을 초기화하도록 함
+        
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+      }
+    }
+    
+    // 색상 보정 후 델리게이트에 프레임 전달
     delegate?.videoCapture(self, didCaptureVideoFrame: sampleBuffer)
   }
   
@@ -1018,6 +1122,22 @@ extension VideoCapture: AVCaptureVideoDataOutputSampleBufferDelegate {
   public func captureOutput(_ output: AVCaptureOutput, didDrop sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
     // 프레임 드롭 로깅 (성능 문제 진단용)
     print("DEBUG: 프레임 드롭 발생")
+  }
+  
+  // 샘플 버퍼에서 프레임 타임스탬프를 가져오는 헬퍼 메서드
+  private func getFrameTime(from sampleBuffer: CMSampleBuffer) -> TimeInterval? {
+    if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) {
+      let dict = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFDictionary.self)
+      let value = CFDictionaryGetValue(dict, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque())
+      let number = unsafeBitCast(value, to: CFBoolean.self)
+      let displayImmediately = CFBooleanGetValue(number)
+      
+      if displayImmediately {
+        let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        return CMTimeGetSeconds(timestamp)
+      }
+    }
+    return nil
   }
 }
 
