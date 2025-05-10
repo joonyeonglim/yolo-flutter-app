@@ -28,8 +28,23 @@ extension VideoCapture {
       
       // 녹화를 시작하기 전에 세션이 실행 중인지 확인
       guard self.captureSession.isRunning else {
-        print("DEBUG: 카메라 세션이 실행 중이지 않아 녹화를 시작할 수 없습니다.")
-        DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 106, userInfo: [NSLocalizedDescriptionKey: "카메라 세션이 실행 중이지 않음"])) }
+        print("DEBUG: 카메라 세션이 실행 중이지 않아 녹화를 시작할 수 없습니다. 세션을 시작합니다.")
+        
+        // 세션을 자동으로 시작
+        self.captureSession.startRunning()
+        
+        // 세션이 시작되기까지 충분한 시간을 기다린 후 녹화 시도
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+          guard let self = self else { return }
+          // 세션이 실행 중인지 다시 확인
+          if self.captureSession.isRunning {
+            print("DEBUG: 세션이 시작되었습니다. 녹화를 다시 시도합니다.")
+            self.startRecording(completion: completion)
+          } else {
+            print("DEBUG: 세션을 시작할 수 없습니다. 녹화를 취소합니다.")
+            completion(nil, NSError(domain: "VideoCapture", code: 107, userInfo: [NSLocalizedDescriptionKey: "카메라 세션을 시작할 수 없음"]))
+          }
+        }
         return
       }
       
