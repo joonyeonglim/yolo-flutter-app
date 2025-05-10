@@ -899,66 +899,26 @@ public class VideoCapture: NSObject {
   }
   
   public func stopRecording(completion: @escaping (URL?, Error?) -> Void) {
+    // 녹화 중이 아닌 경우 즉시 에러 반환
     guard isRecording else {
       completion(nil, NSError(domain: "VideoCapture", code: 102, userInfo: [NSLocalizedDescriptionKey: "녹화 중이 아닙니다"]))
       return
     }
     
     // 실제로 녹화 중인지 확인
-    if !movieFileOutput.isRecording {
-      print("DEBUG: ⚠️ 녹화 플래그는 활성화되어 있으나 실제 녹화는 진행 중이 아님")
+    guard movieFileOutput.isRecording else {
       isRecording = false
       completion(nil, NSError(domain: "VideoCapture", code: 103, userInfo: [NSLocalizedDescriptionKey: "녹화가 이미 중지됨"]))
       return
     }
     
-    // 녹화 중지 여부를 추적하기 위한 플래그
-    var recordingStopped = false
+    // 현재 녹화 URL 즉시 저장
+    let recordingURL = currentRecordingURL
     
-    // 녹화 중지 타임아웃
-    let stopTimeout = DispatchWorkItem { [weak self] in
-      guard let self = self, !recordingStopped else { return }
-      
-      // 타임아웃 시 강제 중지
-      print("DEBUG: ⚠️ 녹화 중지 타임아웃, 강제 종료")
-      self.isRecording = false
-      
-      // 현재 녹화 URL을 저장
-      let currentURL = self.currentRecordingURL
-      
-      // 안전하게 녹화 중지 시도
-      if self.movieFileOutput.isRecording {
-        self.movieFileOutput.stopRecording()
-      }
-      
-      DispatchQueue.main.async {
-        completion(currentURL, NSError(domain: "VideoCapture", code: 112, userInfo: [NSLocalizedDescriptionKey: "녹화 중지 시간 초과, 부분 파일이 저장되었을 수 있음"]))
-      }
-    }
-    
-    // 8초 후 타임아웃 실행
-    DispatchQueue.main.asyncAfter(deadline: .now() + 8.0, execute: stopTimeout)
-    
-    performSafeCameraOperation { [weak self] in
+    // 콜백 설정 (단순화)
+    recordingCompletionHandler = { [weak self] (url, error) in
       guard let self = self else {
-        stopTimeout.cancel()
-        DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 108, userInfo: [NSLocalizedDescriptionKey: "VideoCapture 객체가 해제됨"])) }
-        return
-      }
-      
-      if self.movieFileOutput.isRecording {
-        print("DEBUG: 녹화 중지 시도 중...")
-        
-        // 원래의 콜백을 저장하고 새 콜백 설정
-        self.recordingCompletionHandler = { [weak self] (url, error) in
-          // 타임아웃 취소
-          stopTimeout.cancel()
-          
-          // 녹화 중지 성공 표시
-          recordingStopped = true
-          
-          guard let self = self else {
-            completion(url, error)
+        completion(recordingURL, error)
             return
           }
           
@@ -967,53 +927,17 @@ public class VideoCapture: NSObject {
           if let error = error {
             print("DEBUG: 녹화 중지 오류: \(error)")
             completion(nil, error)
-          } else if let url = url {
-            print("DEBUG: 녹화 성공적으로 완료됨: \(url.path)")
-            
-            // 파일 크기 확인 (0바이트 파일 감지)
-            do {
-              let fileAttributes = try FileManager.default.attributesOfItem(atPath: url.path)
-              if let fileSize = fileAttributes[.size] as? Int, fileSize == 0 {
-                print("DEBUG: ⚠️ 녹화된 파일이 0바이트입니다")
-                completion(nil, NSError(domain: "VideoCapture", code: 113, userInfo: [NSLocalizedDescriptionKey: "녹화된 파일이 비어 있습니다"]))
-                return
-              }
-            } catch {
-              print("DEBUG: 파일 크기 확인 중 오류: \(error)")
-              // 파일 크기를 확인할 수 없지만 파일 자체는 있으므로 계속 진행
-            }
-            
-            completion(url, nil)
           } else {
-            print("DEBUG: 녹화가 중지되었으나 URL이 없음")
-            completion(nil, NSError(domain: "VideoCapture", code: 109, userInfo: [NSLocalizedDescriptionKey: "녹화 URL을 찾을 수 없음"]))
-          }
-        }
-        
-        // 녹화 중지
-        print("DEBUG: 녹화 중지 실행")
-        self.movieFileOutput.stopRecording()
-        
-        // 중지 확인
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-          guard let self = self else { return }
-          
-          if !self.movieFileOutput.isRecording {
-            recordingStopped = true
-            stopTimeout.cancel()
-            print("DEBUG: 녹화 중지 확인됨")
-          }
-        }
-      } else {
-        // 이상 상태: isRecording은 true지만 실제로는 녹화 중이 아님
-        stopTimeout.cancel()
-        print("DEBUG: ⚠️ 녹화 플래그는 활성화되어 있으나 실제 녹화는 진행 중이 아님")
-        self.isRecording = false
-        DispatchQueue.main.async {
-          completion(nil, NSError(domain: "VideoCapture", code: 103, userInfo: [NSLocalizedDescriptionKey: "녹화가 이미 중지됨"]))
-        }
+        // URL이 있으면 즉시 반환, 없으면 미리 저장한 URL 사용
+        let fileURL = url ?? recordingURL
+        print("DEBUG: 녹화 완료됨: \(fileURL?.path ?? "경로없음")")
+        completion(fileURL, nil)
       }
     }
+    
+    // 녹화 중지 간단히 실행
+    print("DEBUG: 녹화 중지 실행")
+    movieFileOutput.stopRecording()
   }
 
   // 오디오 입력이 있는지 확인하는 헬퍼 메서드
