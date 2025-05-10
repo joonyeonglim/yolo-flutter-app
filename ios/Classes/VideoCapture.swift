@@ -228,8 +228,11 @@ public class VideoCapture: NSObject {
       // Ensure session is not running
       if self.captureSession.isRunning {
         self.captureSession.stopRunning()
+<<<<<<< HEAD
         // 세션 중지 후 약간의 지연 추가
         Thread.sleep(forTimeInterval: 0.3)
+=======
+>>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
       }
 
       self.captureSession.beginConfiguration()
@@ -249,12 +252,16 @@ public class VideoCapture: NSObject {
         let device = bestCaptureDevice(position: position)
         self.currentDevice = device
         
+<<<<<<< HEAD
         // 안전하게 현재 줌 팩터 초기화
         self.currentZoomFactor = 1.0
         self.isSlowMotionEnabled = false
         self.currentFrameRate = 30
         
         // 카메라 장치 구성 최적화 - 색상 설정 개선
+=======
+        // 카메라 장치 구성 최적화
+>>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
         try device.lockForConfiguration()
         
         // 초기 블루 틴트 문제를 방지하기 위한 화이트 밸런스 설정
@@ -319,6 +326,13 @@ public class VideoCapture: NSObject {
           let duration = CMTime(value: 1, timescale: 30)
           device.activeVideoMinFrameDuration = duration
           device.activeVideoMaxFrameDuration = duration
+          self.currentFrameRate = 30
+        }
+        
+        // 줌 팩터 적용 - 디폴트는 1.0
+        if self.currentZoomFactor != 1.0 {
+          let maxZoomFactor = min(device.activeFormat.videoMaxZoomFactor, 5.0)
+          device.videoZoomFactor = min(self.currentZoomFactor, maxZoomFactor)
         }
         
         device.unlockForConfiguration()
@@ -327,9 +341,6 @@ public class VideoCapture: NSObject {
         if self.captureSession.canAddInput(input) {
           self.captureSession.addInput(input)
           print("DEBUG: Added camera input")
-        } else {
-          print("DEBUG: ⚠️ Cannot add camera input")
-          throw NSError(domain: "VideoCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot add camera input"])
         }
 
         // 오디오 입력 설정
@@ -339,8 +350,6 @@ public class VideoCapture: NSObject {
             if self.captureSession.canAddInput(audioInput) {
               self.captureSession.addInput(audioInput)
               print("DEBUG: Added audio input")
-            } else {
-              print("DEBUG: ⚠️ Cannot add audio input")
             }
           } catch {
             print("DEBUG: Could not create audio input: \(error)")
@@ -359,22 +368,16 @@ public class VideoCapture: NSObject {
         if self.captureSession.canAddOutput(self.videoOutput) {
           self.captureSession.addOutput(self.videoOutput)
           print("DEBUG: Added video output")
-        } else {
-          print("DEBUG: ⚠️ Cannot add video output")
         }
 
         if self.captureSession.canAddOutput(self.photoOutput) {
           self.captureSession.addOutput(self.photoOutput)
           print("DEBUG: Added photo output")
-        } else {
-          print("DEBUG: ⚠️ Cannot add photo output")
         }
 
         if self.captureSession.canAddOutput(self.movieFileOutput) {
           self.captureSession.addOutput(self.movieFileOutput)
           print("DEBUG: Added movie file output")
-        } else {
-          print("DEBUG: ⚠️ Cannot add movie output")
         }
 
         // 비디오 연결 구성 개선
@@ -419,7 +422,7 @@ public class VideoCapture: NSObject {
             connection.isVideoMirrored = position == .front
           }
 
-          // 슬로우 모션 지원 여부 확인 및 로깅 (세션 설정에 영향 없음)
+          // 카메라 설정 완료 후 슬로우 모션 지원 여부 확인
           let slowMotionSupported = self.isSlowMotionSupported()
           let maxSlowMotionFps = self.getMaxSlowMotionFrameRate()
           print("DEBUG: 카메라 설정 완료 - 슬로우 모션 지원: \(slowMotionSupported), 최대 \(maxSlowMotionFps) FPS")
@@ -717,6 +720,7 @@ public class VideoCapture: NSObject {
     }
   }
 
+<<<<<<< HEAD
   // AVCaptureSession과 관련된 작업을 안전하게 래핑하는 헬퍼 메서드
   private func performSafeCameraOperation(_ operation: @escaping () -> Void) {
     // 카메라가 사용 가능한지 확인
@@ -733,6 +737,44 @@ public class VideoCapture: NSObject {
     }
   }
   
+=======
+  public func start() {
+    if !captureSession.isRunning {
+      cameraQueue.async { [weak self] in
+        guard let self = self else { return }
+        
+        // 안전하게 세션 시작
+        self.captureSession.startRunning()
+        print("DEBUG: Camera started running")
+        
+        // 세션이 시작된 후 메인 스레드에서 프리뷰 레이어 상태 확인
+        DispatchQueue.main.async { [weak self] in
+          guard let self = self else { return }
+          
+          // 프리뷰 레이어가 없거나 슈퍼레이어가 없는 경우 nativeView에 다시 추가
+          if let previewLayer = self.previewLayer, previewLayer.superlayer == nil, let nativeView = self.nativeView {
+            if let view = nativeView.view() as? UIView {
+              previewLayer.frame = view.bounds
+              view.layer.addSublayer(previewLayer)
+              print("DEBUG: Re-added preview layer to view after starting camera")
+            }
+          }
+        }
+      }
+    }
+  }
+
+  public func stop() {
+    if captureSession.isRunning {
+      captureSession.stopRunning()
+      // Wait for the session to stop
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        print("DEBUG: Camera stopped running")
+      }
+    }
+  }
+
+>>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
   public func startRecording(completion: @escaping (URL?, Error?) -> Void) {
     guard !isRecording else {
       completion(nil, NSError(domain: "VideoCapture", code: 100, userInfo: [NSLocalizedDescriptionKey: "이미 녹화 중입니다"]))
@@ -756,6 +798,7 @@ public class VideoCapture: NSObject {
     // 파일이 이미 존재하면 삭제
     try? FileManager.default.removeItem(at: fileURL)
     
+<<<<<<< HEAD
     // 녹화 시작 여부를 추적하기 위한 플래그
     var recordingStarted = false
     
@@ -791,6 +834,10 @@ public class VideoCapture: NSObject {
       
       // 실제 녹화 시작 전에 플래그 설정
       self.isRecording = true
+=======
+    cameraQueue.async { [weak self] in
+      guard let self = self else { return }
+>>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
       
       if self.movieFileOutput.isRecording == false {
         // 오디오 입력이 없는 경우 추가
@@ -804,7 +851,6 @@ public class VideoCapture: NSObject {
         
         // 비디오 설정 구성
         if let connection = self.movieFileOutput.connection(with: .video) {
-          // 비디오 방향 설정
           connection.videoOrientation = .portrait
           connection.isVideoMirrored = self.currentPosition == AVCaptureDevice.Position.front
           
@@ -812,7 +858,8 @@ public class VideoCapture: NSObject {
           if self.isSlowMotionEnabled {
             print("DEBUG: 슬로우 모션 모드로 녹화 시작 - \(self.currentFrameRate) FPS")
             
-            // 비디오 안정화 설정 (가능한 경우)
+            // 슬로우 모션 녹화용 설정 적용
+            // 참고: 이 설정은 일부 기기에서만 작동할 수 있음
             if connection.isVideoStabilizationSupported {
               connection.preferredVideoStabilizationMode = .auto
             }
@@ -843,6 +890,7 @@ public class VideoCapture: NSObject {
         }
         
         self.currentRecordingURL = fileURL
+<<<<<<< HEAD
         
         // 녹화 시작 시도
         do {
@@ -891,8 +939,14 @@ public class VideoCapture: NSObject {
         recordingTimeout.cancel()
         
         self.isRecording = false
+=======
+        self.movieFileOutput.startRecording(to: fileURL, recordingDelegate: self)
+        self.isRecording = true
+        print("DEBUG: Video recording started to \(fileURL.path)")
+      } else {
+>>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
         DispatchQueue.main.async {
-          completion(nil, NSError(domain: "VideoCapture", code: 101, userInfo: [NSLocalizedDescriptionKey: "녹화 시작 실패 - 이미 다른 녹화가 진행 중"]))
+          completion(nil, NSError(domain: "VideoCapture", code: 101, userInfo: [NSLocalizedDescriptionKey: "녹화 시작 실패"]))
         }
       }
     }
@@ -905,6 +959,7 @@ public class VideoCapture: NSObject {
       return
     }
     
+<<<<<<< HEAD
     // 실제로 녹화 중인지 확인
     guard movieFileOutput.isRecording else {
       isRecording = false
@@ -932,6 +987,23 @@ public class VideoCapture: NSObject {
         let fileURL = url ?? recordingURL
         print("DEBUG: 녹화 완료됨: \(fileURL?.path ?? "경로없음")")
         completion(fileURL, nil)
+=======
+    cameraQueue.async { [weak self] in
+      guard let self = self else { return }
+      
+      if self.movieFileOutput.isRecording {
+        self.recordingCompletionHandler = { [weak self] (url, error) in
+          // 원래의 콜백 호출
+          completion(url, error)
+        }
+        
+        self.movieFileOutput.stopRecording()
+      } else {
+        DispatchQueue.main.async {
+          self.isRecording = false
+          completion(nil, NSError(domain: "VideoCapture", code: 103, userInfo: [NSLocalizedDescriptionKey: "녹화가 이미 중지됨"]))
+        }
+>>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
       }
     }
     
@@ -1029,16 +1101,7 @@ public class VideoCapture: NSObject {
   }
   
   public func setFrameRate(_ fps: Int) -> Bool {
-    guard let device = self.currentDevice else { 
-      print("DEBUG: Cannot set frame rate - no device available")
-      return false 
-    }
-    
-    // 이미 같은 FPS라면 변경 불필요
-    if self.currentFrameRate == fps {
-      print("DEBUG: Frame rate already set to \(fps) FPS")
-      return true
-    }
+    guard let device = self.currentDevice else { return false }
     
     // 먼저 현재 포맷이 이 FPS를 지원하는지 확인
     var currentFormatSupported = false
@@ -1091,7 +1154,7 @@ public class VideoCapture: NSObject {
       self.currentFrameRate = targetFps
       
       device.unlockForConfiguration()
-      print("DEBUG: Frame rate successfully set to \(targetFps) FPS")
+      print("DEBUG: Frame rate set to \(targetFps) FPS")
       return true
     } catch {
       print("DEBUG: Failed to set frame rate: \(error)")
@@ -1106,30 +1169,48 @@ public class VideoCapture: NSObject {
     print("DEBUG: ===== 카메라 장치 정보 =====")
     print("DEBUG: 현재 카메라: \(device.localizedName)")
     print("DEBUG: 모델 ID: \(device.modelID)")
+    print("DEBUG: 모든 포맷 정보 출력 시작:")
     
-    // 모든 포맷 정보 간단히 로깅 (너무 많은 로그 생성 방지)
-    print("DEBUG: 슬로우 모션 포맷 검색 시작")
+    // 모든 포맷 정보를 출력하여 디버깅
+    var allFormatsInfo = ""
+    for (index, format) in device.formats.enumerated() {
+      let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+      let frameRates = format.videoSupportedFrameRateRanges.map { "\($0.minFrameRate)-\($0.maxFrameRate)" }.joined(separator: ", ")
+      let formatTypeStr = CMFormatDescriptionGetMediaSubType(format.formatDescription).toString()
+      
+      allFormatsInfo += "포맷 #\(index): \(dimensions.width)x\(dimensions.height) \(formatTypeStr), FPS: [\(frameRates)]\n"
+    }
+    print("DEBUG: \(allFormatsInfo)")
     
-    // 1. 먼저 SlowMo 전용 포맷 찾기 (120fps 이상을 지원하는 포맷)
+    // 1. 먼저 SlowMo 전용 포맷 찾기 (Slo-mo가 이름에 있거나 240fps를 지원하는 포맷)
     var bestFormat: AVCaptureDevice.Format? = nil
     var bestFrameRate: Float64 = 0
-    var bestResolution: Int32 = 0
     
+    // 슬로우 모션 모드 전용 포맷 검색 (240fps 지원 우선)
     for format in device.formats {
       let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-      let resolution = dimensions.width * dimensions.height
+      let formatDescription = CMFormatDescriptionGetMediaSubType(format.formatDescription).toString()
       
       // 포맷의 프레임 레이트 범위 확인
       for range in format.videoSupportedFrameRateRanges {
-        // 120fps 이상을 지원하는 포맷 찾기
+        // 240fps 혹은 120fps를 지원하는 포맷 찾기
         if range.maxFrameRate >= 120 {
-          // 프레임레이트가 더 높거나, 같은 프레임레이트면 해상도가 더 높은 포맷 선택
-          if range.maxFrameRate > bestFrameRate || 
-            (range.maxFrameRate == bestFrameRate && resolution > bestResolution) {
+          // 현재까지 찾은 것보다 프레임레이트가 높으면 업데이트
+          if range.maxFrameRate > bestFrameRate {
             bestFormat = format
             bestFrameRate = range.maxFrameRate
-            bestResolution = resolution
-            print("DEBUG: ✅ 슬로우 모션 포맷 후보: \(dimensions.width)x\(dimensions.height) @ \(bestFrameRate)fps")
+            print("DEBUG: ✅ 슬로우 모션 포맷 발견: \(dimensions.width)x\(dimensions.height) \(formatDescription) @ \(bestFrameRate)fps")
+          }
+          // 같은 프레임레이트라면 해상도가 더 높은 것을 선택
+          else if range.maxFrameRate == bestFrameRate && bestFormat != nil {
+            let bestDimensions = CMVideoFormatDescriptionGetDimensions(bestFormat!.formatDescription)
+            let bestResolution = bestDimensions.width * bestDimensions.height
+            let currentResolution = dimensions.width * dimensions.height
+            
+            if currentResolution > bestResolution {
+              bestFormat = format
+              print("DEBUG: ✅ 더 높은 해상도의 슬로우 모션 포맷 발견: \(dimensions.width)x\(dimensions.height) \(formatDescription) @ \(bestFrameRate)fps")
+            }
           }
         }
       }
@@ -1139,6 +1220,11 @@ public class VideoCapture: NSObject {
       let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
       let formatTypeStr = CMFormatDescriptionGetMediaSubType(format.formatDescription).toString()
       print("DEBUG: 🎯 선택된 슬로우 모션 포맷: \(dimensions.width)x\(dimensions.height) \(formatTypeStr), \(bestFrameRate)fps")
+      
+      // 이 포맷의 프레임레이트 범위 출력
+      for range in format.videoSupportedFrameRateRanges {
+        print("DEBUG: 지원 프레임레이트 범위: \(range.minFrameRate) - \(range.maxFrameRate)fps")
+      }
     } else {
       print("DEBUG: ⚠️ 슬로우 모션을 지원하는 포맷을 찾을 수 없습니다")
     }
@@ -1168,21 +1254,6 @@ public class VideoCapture: NSObject {
       }
     }
     
-    if bestFormat == nil {
-      // 높은 해상도의 포맷을 찾지 못한 경우 낮은 해상도라도 사용
-      for format in device.formats {
-        for range in format.videoSupportedFrameRateRanges {
-          if range.maxFrameRate >= 30 {
-            bestFormat = format
-            break
-          }
-        }
-        if bestFormat != nil {
-          break
-        }
-      }
-    }
-    
     return bestFormat
   }
   
@@ -1196,70 +1267,60 @@ public class VideoCapture: NSObject {
       return true
     }
     
-    // 녹화 중에는 모드 변경 금지
-    if isRecording {
-      print("DEBUG: ⚠️ 녹화 중에는 슬로우 모션 모드를 변경할 수 없습니다")
-      return false
-    }
-    
     do {
-      // 세션 재구성 시작 전 카메라가 실행 중인지 확인
-      let wasRunning = captureSession.isRunning
-      
-      // 실행 중이라면 잠시 중지
-      if wasRunning {
-        captureSession.stopRunning()
-        // 세션이 완전히 중지될 때까지 짧게 대기
-        Thread.sleep(forTimeInterval: 0.2)
-      }
-      
-      // 세션 재구성 시작
+      // 세션 재구성 시작 (중요: 이 단계에서 카메라 프리뷰가 잠시 중단될 수 있음)
       captureSession.beginConfiguration()
-      
-      // 기존 비디오 입력/출력 임시 저장 (오디오는 유지)
-      var videoInputs = [AVCaptureDeviceInput]()
-      for input in captureSession.inputs {
-        if let deviceInput = input as? AVCaptureDeviceInput, 
-           deviceInput.device.hasMediaType(AVMediaType.video) {
-          videoInputs.append(deviceInput)
-          captureSession.removeInput(deviceInput)
-        }
-      }
       
       if enable {
         print("DEBUG: 슬로우 모션 모드 활성화 시도 중...")
+        
+        // 현재 카메라 입력 객체 백업
+        var currentInput: AVCaptureDeviceInput? = nil
+        for input in captureSession.inputs {
+          if let deviceInput = input as? AVCaptureDeviceInput, 
+             deviceInput.device.hasMediaType(AVMediaType.video) {
+            currentInput = deviceInput
+            break
+          }
+        }
+        
+        // 현재 입력이 있으면 제거
+        if let currentInput = currentInput {
+          captureSession.removeInput(currentInput)
+        }
         
         // 기존 세션 설정 백업
         let previousPreset = captureSession.sessionPreset
         
         // SlowMo 전용 프리셋으로 설정
+        // 이 프리셋은 일반적으로 240fps를 지원하는 포맷을 사용
         captureSession.sessionPreset = AVCaptureSession.Preset.hd1280x720
         
         // 슬로우 모션 모드 활성화 (120fps 또는 240fps)
         guard let slowMotionFormat = findSlowMotionFormat() else {
           // 실패 시 원래 설정으로 복원
           captureSession.sessionPreset = previousPreset
-          for input in videoInputs {
-            if captureSession.canAddInput(input) {
-              captureSession.addInput(input)
-            }
+          if let currentInput = currentInput, captureSession.canAddInput(currentInput) {
+            captureSession.addInput(currentInput)
           }
           
           print("DEBUG: ❌ 슬로우 모션 포맷을 찾을 수 없어 활성화 실패")
           captureSession.commitConfiguration()
-          
-          // 이전에 실행 중이었다면 다시 시작
-          if wasRunning {
-            captureSession.startRunning()
-          }
-          
           return false
         }
         
         // 포맷 변경 전 카메라 구성 잠금
         try device.lockForConfiguration()
         
-        // 새 포맷으로 변경
+        // 현재 포맷 정보 로깅
+        let currentDimensions = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+        print("DEBUG: 현재 포맷: \(currentDimensions.width)x\(currentDimensions.height)")
+        
+        // 새 포맷 정보 로깅
+        let newDimensions = CMVideoFormatDescriptionGetDimensions(slowMotionFormat.formatDescription)
+        print("DEBUG: 슬로우 모션 포맷으로 변경: \(newDimensions.width)x\(newDimensions.height)")
+        
+        // 포맷 변경
         device.activeFormat = slowMotionFormat
         
         // 프레임레이트 설정 (포맷의 최대값 또는 240fps 중 작은 값)
@@ -1277,21 +1338,29 @@ public class VideoCapture: NSObject {
         device.unlockForConfiguration()
         
         // 새 입력 추가
-        do {
-          let newInput = try AVCaptureDeviceInput(device: device)
-          if captureSession.canAddInput(newInput) {
-            captureSession.addInput(newInput)
+        if let currentInput = currentInput {
+          if captureSession.canAddInput(currentInput) {
+            captureSession.addInput(currentInput)
           } else {
-            throw NSError(domain: "VideoCapture", code: 3, userInfo: [NSLocalizedDescriptionKey: "Cannot add video input for slow motion"])
-          }
-        } catch {
-          print("DEBUG: ❌ 슬로우 모션 비디오 입력 설정 오류: \(error)")
-          
-          // 원래 입력으로 복구 시도
-          for input in videoInputs {
-            if captureSession.canAddInput(input) {
-              captureSession.addInput(input)
+            do {
+              // 새 입력 생성 시도
+              let newInput = try AVCaptureDeviceInput(device: device)
+              if captureSession.canAddInput(newInput) {
+                captureSession.addInput(newInput)
+              }
+            } catch {
+              print("DEBUG: ❌ 카메라 입력 재설정 오류: \(error)")
             }
+          }
+        } else {
+          do {
+            // 새 입력 생성 시도
+            let newInput = try AVCaptureDeviceInput(device: device)
+            if captureSession.canAddInput(newInput) {
+              captureSession.addInput(newInput)
+            }
+          } catch {
+            print("DEBUG: ❌ 카메라 입력 설정 오류: \(error)")
           }
         }
         
@@ -1299,32 +1368,41 @@ public class VideoCapture: NSObject {
       } else {
         print("DEBUG: 일반 비디오 모드로 복귀 중...")
         
+        // 현재 카메라 입력 객체 백업
+        var currentInput: AVCaptureDeviceInput? = nil
+        for input in captureSession.inputs {
+          if let deviceInput = input as? AVCaptureDeviceInput, 
+             deviceInput.device.hasMediaType(AVMediaType.video) {
+            currentInput = deviceInput
+            break
+          }
+        }
+        
+        // 현재 입력이 있으면 제거
+        if let currentInput = currentInput {
+          captureSession.removeInput(currentInput)
+        }
+        
         // 기본 세션 프리셋으로 복원
         captureSession.sessionPreset = AVCaptureSession.Preset.high
         
         // 슬로우 모션 모드 비활성화 (일반 녹화로 돌아감)
         guard let normalFormat = findNormalVideoFormat() else {
           print("DEBUG: ❌ 일반 비디오 포맷을 찾을 수 없어 비활성화 실패")
-          
-          // 원래 입력 복원
-          for input in videoInputs {
-            if captureSession.canAddInput(input) {
-              captureSession.addInput(input)
-            }
-          }
-          
           captureSession.commitConfiguration()
-          
-          // 이전에 실행 중이었다면 다시 시작
-          if wasRunning {
-            captureSession.startRunning()
-          }
-          
           return false
         }
         
         // 포맷 변경 전 카메라 구성 잠금
         try device.lockForConfiguration()
+        
+        // 현재 포맷 정보 로깅
+        let currentDimensions = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+        print("DEBUG: 현재 포맷: \(currentDimensions.width)x\(currentDimensions.height)")
+        
+        // 새 포맷 정보 로깅
+        let newDimensions = CMVideoFormatDescriptionGetDimensions(normalFormat.formatDescription)
+        print("DEBUG: 일반 비디오 포맷으로 변경: \(newDimensions.width)x\(newDimensions.height)")
         
         // 포맷 변경
         device.activeFormat = normalFormat
@@ -1340,20 +1418,18 @@ public class VideoCapture: NSObject {
         device.unlockForConfiguration()
         
         // 새 입력 추가
-        do {
-          let newInput = try AVCaptureDeviceInput(device: device)
-          if captureSession.canAddInput(newInput) {
-            captureSession.addInput(newInput)
+        if let currentInput = currentInput {
+          if captureSession.canAddInput(currentInput) {
+            captureSession.addInput(currentInput)
           } else {
-            throw NSError(domain: "VideoCapture", code: 4, userInfo: [NSLocalizedDescriptionKey: "Cannot add video input for normal mode"])
-          }
-        } catch {
-          print("DEBUG: ❌ 일반 모드 비디오 입력 설정 오류: \(error)")
-          
-          // 원래 입력으로 복구 시도
-          for input in videoInputs {
-            if captureSession.canAddInput(input) {
-              captureSession.addInput(input)
+            do {
+              // 새 입력 생성 시도
+              let newInput = try AVCaptureDeviceInput(device: device)
+              if captureSession.canAddInput(newInput) {
+                captureSession.addInput(newInput)
+              }
+            } catch {
+              print("DEBUG: ❌ 카메라 입력 재설정 오류: \(error)")
             }
           }
         }
@@ -1363,12 +1439,6 @@ public class VideoCapture: NSObject {
       
       // 변경사항 적용
       captureSession.commitConfiguration()
-      
-      // 이전에 실행 중이었다면 다시 시작
-      if wasRunning {
-        captureSession.startRunning()
-      }
-      
       return true
     } catch {
       print("DEBUG: ❌ 슬로우 모션 설정 오류: \(error)")
@@ -1448,6 +1518,7 @@ extension VideoCapture: AVCaptureVideoDataOutputSampleBufferDelegate {
     // 색상 보정 후 델리게이트에 프레임 전달
     delegate?.videoCapture(self, didCaptureVideoFrame: sampleBuffer)
   }
+<<<<<<< HEAD
   
   // 출력이 삭제되었을 때 호출되는 메서드
   public func captureOutput(_ output: AVCaptureOutput, didDrop sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
@@ -1470,6 +1541,8 @@ extension VideoCapture: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
     return nil
   }
+=======
+>>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
 }
 
 extension VideoCapture: AVCapturePhotoCaptureDelegate {
