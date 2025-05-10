@@ -4,24 +4,7 @@
 // 기존 프로젝트와의 호환성을 유지하기 위해 원래 API를 그대로 노출합니다.
 // 클래스 정의와 함께 모든 프로토콜 및 확장 기능을 포함합니다.
 
-// FourCharCode 확장은 그대로 유지 (호환성을 위해)
-extension FourCharCode {
-  func toString() -> String {
-    let bytes: [CChar] = [
-      CChar((self >> 24) & 0xFF),
-      CChar((self >> 16) & 0xFF),
-      CChar((self >> 8) & 0xFF),
-      CChar(self & 0xFF),
-      0
-    ]
-    return String(cString: bytes)
-  }
-}
-
-// 베스트 카메라 장치 선택 함수 (호환성을 위해)
-func bestCaptureDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice {
-  return AVCaptureDevice.bestCaptureDevice(position: position)
-}
+import AVFoundation // AVFoundation 프레임워크를 가져옵니다.
 
 // VideoCapture 클래스는 원래와 동일한 API를 유지합니다.
 public class VideoCapture: NSObject {
