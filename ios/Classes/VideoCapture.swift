@@ -69,12 +69,85 @@ public class VideoCapture: NSObject {
   private var initialFramesProcessed = false
   private var frameCount = 0
   
+  // 카메라 설정 상태를 추적하기 위한 열거형 추가
+  public enum CameraSetupState {
+    case notConfigured
+    case configuring
+    case configured
+    case failed
+    case releasing
+  }
+  
+  // 현재 카메라 설정 상태
+  private var setupState: CameraSetupState = .notConfigured
+  
+  // 동기화를 위한 세마포어 추가
+  private let setupSemaphore = DispatchSemaphore(value: 1)
+  
+  // 타임아웃 값 설정
+  private let setupTimeoutInterval: TimeInterval = 5.0
+  
+  // 초기화 메서드 개선
   public override init() {
     super.init()
     print("DEBUG: VideoCapture initialized")
     
-    // 추가: 앱 진입 시점 기록
+    // 앱 진입 시점 기록
     appStartTime = ProcessInfo.processInfo.systemUptime
+    
+    // 앱 종료 시 리소스 정리를 위한 옵저버 등록
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(applicationWillTerminate),
+      name: UIApplication.willTerminateNotification,
+      object: nil
+    )
+    
+    // 백그라운드 진입 시 리소스 정리를 위한 옵저버 등록
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(applicationDidEnterBackground),
+      name: UIApplication.didEnterBackgroundNotification,
+      object: nil
+    )
+    
+    // 포그라운드 복귀 시 카메라 재설정을 위한 옵저버 등록
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(applicationWillEnterForeground),
+      name: UIApplication.willEnterForegroundNotification,
+      object: nil
+    )
+  }
+  
+  // 앱 생명주기 관련 메서드 추가
+  @objc private func applicationWillTerminate() {
+    print("DEBUG: 앱 종료 감지, 모든 카메라 리소스 해제")
+    releaseResources()
+  }
+  
+  @objc private func applicationDidEnterBackground() {
+    print("DEBUG: 앱 백그라운드 진입, 카메라 세션 중지")
+    stop()
+  }
+  
+  @objc private func applicationWillEnterForeground() {
+    print("DEBUG: 앱 포그라운드 복귀, 필요시 카메라 세션 재시작")
+    // 이전에 설정되었던 경우에만 재시작
+    if setupState == .configured && !captureSession.isRunning {
+      start()
+    }
+  }
+  
+  // deinit 개선
+  deinit {
+    print("DEBUG: VideoCapture deinit 호출됨")
+    
+    // 옵저버 제거
+    NotificationCenter.default.removeObserver(self)
+    
+    // 리소스 해제
+    releaseResources()
   }
 
   public func setUp(
@@ -84,11 +157,71 @@ public class VideoCapture: NSObject {
   ) {
     print("DEBUG: Setting up video capture with position:", position)
     
+    // 이미 설정 중인 경우 중복 호출 방지
+    guard setupState != .configuring else {
+      print("DEBUG: 카메라 설정이 이미 진행 중입니다. 완료될 때까지 기다려주세요.")
+      DispatchQueue.main.async { completion(false) }
+      return
+    }
+    
+    // 이미 설정된 경우 (중복 호출 방지 및 최적화)
+    if setupState == .configured && captureSession.isRunning && currentPosition == position {
+      print("DEBUG: 카메라가 이미 해당 방향으로 설정되어 있습니다.")
+      DispatchQueue.main.async { completion(true) }
+      return
+    }
+    
+    // 세마포어로 동시 접근 제한 (타임아웃 적용)
+    let semaphoreResult = setupSemaphore.wait(timeout: .now() + setupTimeoutInterval)
+    guard semaphoreResult == .success else {
+      print("DEBUG: 카메라 설정 세마포어 타임아웃 발생")
+      DispatchQueue.main.async { completion(false) }
+      return
+    }
+    
+    // 작업 완료 시 세마포어 신호 전송을 보장
+    defer {
+      setupSemaphore.signal()
+    }
+    
     self.currentPosition = position
+    setupState = .configuring
+    
+    // 설정 완료 또는 오류 발생 시 호출할 콜백
+    let setupCompletion: (Bool) -> Void = { [weak self] success in
+      guard let self = self else {
+        DispatchQueue.main.async { completion(false) }
+        return
+      }
+      
+      if success {
+        self.setupState = .configured
+        print("DEBUG: 카메라 설정 성공적으로 완료됨")
+      } else {
+        self.setupState = .failed
+        print("DEBUG: 카메라 설정 실패")
+      }
+      
+      DispatchQueue.main.async {
+        completion(success)
+      }
+    }
+    
+    // 설정 타임아웃 핸들러
+    let setupTimeoutWorkItem = DispatchWorkItem { [weak self] in
+      guard let self = self, self.setupState == .configuring else { return }
+      print("DEBUG: 카메라 설정 시간 초과")
+      self.setupState = .failed
+      setupCompletion(false)
+    }
+    
+    // 타임아웃 설정
+    DispatchQueue.main.asyncAfter(deadline: .now() + setupTimeoutInterval, execute: setupTimeoutWorkItem)
     
     cameraQueue.async { [weak self] in
       guard let self = self else {
-        DispatchQueue.main.async { completion(false) }
+        setupTimeoutWorkItem.cancel()
+        setupCompletion(false)
         return
       }
 
@@ -96,7 +229,7 @@ public class VideoCapture: NSObject {
       if self.captureSession.isRunning {
         self.captureSession.stopRunning()
         // 세션 중지 후 약간의 지연 추가
-        Thread.sleep(forTimeInterval: 0.2)
+        Thread.sleep(forTimeInterval: 0.3)
       }
 
       self.captureSession.beginConfiguration()
@@ -263,9 +396,17 @@ public class VideoCapture: NSObject {
         }
 
         self.captureSession.commitConfiguration()
+        
+        // 타임아웃 취소
+        setupTimeoutWorkItem.cancel()
 
         // Set up preview layer on main thread
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+          guard let self = self else {
+            setupCompletion(false)
+            return
+          }
+          
           // 기존 프리뷰 레이어가 있으면 제거
           self.previewLayer?.removeFromSuperlayer()
           
@@ -289,12 +430,268 @@ public class VideoCapture: NSObject {
             print("DEBUG: 카메라 세션 시작됨 (메인 스레드)")
           }
           
-          completion(true)
+          // 프리뷰 레이어를 뷰에 추가
+          if let nativeView = self.nativeView {
+            if let view = nativeView.view() as? UIView {
+              self.previewLayer?.frame = view.bounds
+              view.layer.addSublayer(self.previewLayer!)
+              print("DEBUG: 프리뷰 레이어 추가됨")
+            }
+          }
+          
+          // 초기 프레임 처리 상태 초기화
+          self.initialFramesProcessed = false
+          self.frameCount = 0
+          
+          setupCompletion(true)
         }
       } catch {
         print("DEBUG: Camera setup error:", error)
         self.captureSession.commitConfiguration()
-        DispatchQueue.main.async { completion(false) }
+        
+        // 타임아웃 취소
+        setupTimeoutWorkItem.cancel()
+        
+        // 에러 복구 시도
+        self.tryRecoverFromSetupError()
+        
+        setupCompletion(false)
+      }
+    }
+  }
+  
+  // 설정 에러 복구 시도 메서드
+  private func tryRecoverFromSetupError() {
+    print("DEBUG: 카메라 설정 오류 복구 시도")
+    
+    // 모든 입력과 출력 제거
+    captureSession.beginConfiguration()
+    
+    for input in captureSession.inputs {
+      captureSession.removeInput(input)
+    }
+    
+    for output in captureSession.outputs {
+      captureSession.removeOutput(output)
+    }
+    
+    // 프리셋을 낮은 해상도로 변경하여 재시도
+    captureSession.sessionPreset = .medium
+    
+    captureSession.commitConfiguration()
+    
+    // 세션이 실행 중이면 중지
+    if captureSession.isRunning {
+      captureSession.stopRunning()
+    }
+  }
+
+  public func start() {
+    // 초기 프레임 처리 상태 리셋 - 앱이 새로 시작할 때 색상 보정 다시 적용
+    initialFramesProcessed = false
+    frameCount = 0
+    
+    // 이미 실행 중이면 중복 호출 방지
+    if captureSession.isRunning {
+      print("DEBUG: 카메라 세션이 이미 실행 중입니다.")
+      return
+    }
+    
+    // 설정 상태 확인
+    guard setupState == .configured else {
+      print("DEBUG: 카메라가 올바르게 설정되지 않았습니다. 먼저 setUp을 호출하세요.")
+      return
+    }
+    
+    cameraQueue.async { [weak self] in
+      guard let self = self else { return }
+      
+      // iOS 14+ 에서는 카메라 권한 상태 확인
+      if #available(iOS 14.0, *) {
+        let authStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        if authStatus != .authorized {
+          print("DEBUG: Camera authorization not granted")
+          return
+        }
+      }
+      
+      print("DEBUG: Starting camera session")
+      
+      // 색상 처리 개선을 위한 화이트 밸런스 설정
+      if let device = self.currentDevice {
+        do {
+          try device.lockForConfiguration()
+          
+          // 화이트 밸런스 재설정
+          if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+            device.whiteBalanceMode = .continuousAutoWhiteBalance
+          }
+          
+          device.unlockForConfiguration()
+        } catch {
+          print("DEBUG: Failed to configure device settings: \(error)")
+        }
+      }
+      
+      // 타임아웃을 사용한 세션 시작
+      let startTimeoutWorkItem = DispatchWorkItem { [weak self] in
+        guard let self = self else { return }
+        
+        if !self.captureSession.isRunning {
+          print("DEBUG: 카메라 세션 시작 타임아웃, 강제 재시도")
+          self.captureSession.startRunning()
+        }
+      }
+      
+      // 세션 시작 전 상태 확인
+      if !self.captureSession.isRunning {
+        self.captureSession.startRunning()
+        
+        // 타임아웃 설정 (3초)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: startTimeoutWorkItem)
+        
+        // 세션 시작 성공 여부 확인
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+          guard let self = self else {
+            startTimeoutWorkItem.cancel()
+            return
+          }
+          
+          if self.captureSession.isRunning {
+            print("DEBUG: Camera started running successfully")
+            startTimeoutWorkItem.cancel()
+            
+            // 세션이 시작된 후 메인 스레드에서 프리뷰 레이어 상태 확인
+            if let previewLayer = self.previewLayer, previewLayer.superlayer == nil, let nativeView = self.nativeView {
+              if let view = nativeView.view() as? UIView {
+                previewLayer.frame = view.bounds
+                view.layer.addSublayer(previewLayer)
+                print("DEBUG: Re-added preview layer to view after starting camera")
+              }
+            }
+          } else {
+            print("DEBUG: Camera session start pending, waiting for timeout...")
+          }
+        }
+      } else {
+        print("DEBUG: Camera already running, no need to start")
+        startTimeoutWorkItem.cancel()
+      }
+    }
+  }
+
+  public func stop() {
+    // 이미 중지되었으면 중복 호출 방지
+    if !captureSession.isRunning {
+      print("DEBUG: 카메라 세션이 이미 중지되었습니다.")
+      return
+    }
+    
+    cameraQueue.async { [weak self] in
+      guard let self = self else { return }
+      
+      print("DEBUG: Stopping camera session")
+      
+      // 세션을 직접 중지
+      self.captureSession.stopRunning()
+      
+      // 중지 확인
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        guard let self = self else { return }
+        
+        // 여전히 실행 중이면 강제 중지 시도
+        if self.captureSession.isRunning {
+          print("DEBUG: 카메라 세션이 여전히 실행 중, 강제 중지 시도")
+          self.captureSession.stopRunning()
+          
+          // 두 번째 확인
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            
+            if !self.captureSession.isRunning {
+              print("DEBUG: Camera stopped successfully after retry")
+            } else {
+              print("DEBUG: ⚠️ Failed to stop camera session even after retry")
+            }
+          }
+        } else {
+          print("DEBUG: Camera stopped successfully")
+          
+          // 프리뷰 레이어 제거 (메모리 관리)
+          DispatchQueue.main.async { [weak self] in
+            self?.previewLayer?.removeFromSuperlayer()
+          }
+        }
+      }
+    }
+  }
+  
+  // 리소스 해제 메서드 개선
+  public func releaseResources() {
+    print("DEBUG: 비디오 캡처 리소스 해제 시작")
+    
+    // 이미 해제 중이면 중복 호출 방지
+    if setupState == .releasing {
+      print("DEBUG: 리소스가 이미 해제 중입니다.")
+      return
+    }
+    
+    setupState = .releasing
+    
+    // 진행 중인 녹화가 있다면 중지
+    if isRecording && movieFileOutput.isRecording {
+      movieFileOutput.stopRecording()
+      isRecording = false
+      print("DEBUG: 진행 중인 녹화를 중지함")
+    }
+    
+    // 동기화 세마포어 대기 (짧은 타임아웃)
+    _ = setupSemaphore.wait(timeout: .now() + 1.0)
+    defer {
+      setupSemaphore.signal()
+    }
+    
+    cameraQueue.async { [weak self] in
+      guard let self = self else { return }
+      
+      // 세션 실행 중이면 중지
+      if self.captureSession.isRunning {
+        self.captureSession.stopRunning()
+        print("DEBUG: 실행 중인 카메라 세션 중지됨")
+        
+        // 세션이 완전히 중지될 때까지 약간 대기
+        Thread.sleep(forTimeInterval: 0.3)
+      }
+      
+      // 세션 구성 시작
+      self.captureSession.beginConfiguration()
+      
+      // 모든 입력 제거
+      for input in self.captureSession.inputs {
+        self.captureSession.removeInput(input)
+      }
+      
+      // 모든 출력 제거
+      for output in self.captureSession.outputs {
+        self.captureSession.removeOutput(output)
+      }
+      
+      self.captureSession.commitConfiguration()
+      
+      // 장치 참조 제거
+      self.currentDevice = nil
+      
+      // 프리뷰 레이어 제거
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self else { return }
+        
+        self.previewLayer?.removeFromSuperlayer()
+        self.previewLayer = nil
+        
+        // 설정 상태 업데이트
+        self.setupState = .notConfigured
+        
+        print("DEBUG: 비디오 캡처 리소스 해제 완료")
       }
     }
   }
@@ -320,101 +717,31 @@ public class VideoCapture: NSObject {
     }
   }
 
-  public func start() {
-    // 초기 프레임 처리 상태 리셋 - 앱이 새로 시작할 때 색상 보정 다시 적용
-    initialFramesProcessed = false
-    frameCount = 0
+  // AVCaptureSession과 관련된 작업을 안전하게 래핑하는 헬퍼 메서드
+  private func performSafeCameraOperation(_ operation: @escaping () -> Void) {
+    // 카메라가 사용 가능한지 확인
+    guard setupState == .configured else {
+      print("DEBUG: ⚠️ 카메라가 설정되지 않아 작업을 수행할 수 없습니다")
+      return
+    }
     
-    cameraQueue.async { [weak self] in
-      guard let self = self else { return }
-      
-      if !self.captureSession.isRunning {
-        // iOS 14+ 에서는 카메라 권한 상태 확인
-        if #available(iOS 14.0, *) {
-          let authStatus = AVCaptureDevice.authorizationStatus(for: .video)
-          if authStatus != .authorized {
-            print("DEBUG: Camera authorization not granted")
-            return
-          }
-        }
-        
-        print("DEBUG: Starting camera session")
-        
-        // 색상 처리 개선을 위한 화이트 밸런스 설정
-        if let device = self.currentDevice {
-          do {
-            try device.lockForConfiguration()
-            
-            // 화이트 밸런스 재설정
-            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
-              device.whiteBalanceMode = .continuousAutoWhiteBalance
-            }
-            
-            device.unlockForConfiguration()
-          } catch {
-            print("DEBUG: Failed to configure device settings: \(error)")
-          }
-        }
-        
-        self.captureSession.startRunning()
-        
-        // 세션 시작 성공 여부 확인
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-          guard let self = self else { return }
-          
-          if self.captureSession.isRunning {
-            print("DEBUG: Camera started running successfully")
-            
-            // 세션이 시작된 후 메인 스레드에서 프리뷰 레이어 상태 확인
-            if let previewLayer = self.previewLayer, previewLayer.superlayer == nil, let nativeView = self.nativeView {
-              if let view = nativeView.view() as? UIView {
-                previewLayer.frame = view.bounds
-                view.layer.addSublayer(previewLayer)
-                print("DEBUG: Re-added preview layer to view after starting camera")
-              }
-            }
-          } else {
-            print("DEBUG: Failed to start camera session")
-          }
-        }
-      } else {
-        print("DEBUG: Camera already running, no need to start")
+    // 카메라 큐에서 안전하게 실행
+    cameraQueue.async {
+      autoreleasepool {
+        operation()
       }
     }
   }
-
-  public func stop() {
-    cameraQueue.async { [weak self] in
-      guard let self = self else { return }
-      
-      if self.captureSession.isRunning {
-        print("DEBUG: Stopping camera session")
-        self.captureSession.stopRunning()
-        
-        // 세션 중지 확인
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-          guard let self = self else { return }
-          
-          if !self.captureSession.isRunning {
-            print("DEBUG: Camera stopped successfully")
-            
-            // 프리뷰 레이어 제거 (메모리 관리)
-            DispatchQueue.main.async {
-              self.previewLayer?.removeFromSuperlayer()
-            }
-          } else {
-            print("DEBUG: Failed to stop camera session")
-          }
-        }
-      } else {
-        print("DEBUG: Camera already stopped, no need to stop")
-      }
-    }
-  }
-
+  
   public func startRecording(completion: @escaping (URL?, Error?) -> Void) {
     guard !isRecording else {
       completion(nil, NSError(domain: "VideoCapture", code: 100, userInfo: [NSLocalizedDescriptionKey: "이미 녹화 중입니다"]))
+      return
+    }
+    
+    // 카메라가 설정되지 않았거나 실행 중이 아니면 에러 반환
+    guard setupState == .configured, captureSession.isRunning else {
+      completion(nil, NSError(domain: "VideoCapture", code: 110, userInfo: [NSLocalizedDescriptionKey: "카메라가 준비되지 않았습니다"]))
       return
     }
     
@@ -429,14 +756,34 @@ public class VideoCapture: NSObject {
     // 파일이 이미 존재하면 삭제
     try? FileManager.default.removeItem(at: fileURL)
     
-    cameraQueue.async { [weak self] in
+    // 녹화 시작 여부를 추적하기 위한 플래그
+    var recordingStarted = false
+    
+    // 녹화 시작 타임아웃
+    let recordingTimeout = DispatchWorkItem { [weak self] in
+      guard let self = self, !recordingStarted else { return }
+      
+      // 타임아웃 시 에러 반환
+      print("DEBUG: ⚠️ 녹화 시작 타임아웃")
+      self.isRecording = false
+      DispatchQueue.main.async {
+        completion(nil, NSError(domain: "VideoCapture", code: 111, userInfo: [NSLocalizedDescriptionKey: "녹화 시작 시간 초과"]))
+      }
+    }
+    
+    // 5초 후 타임아웃 실행
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0, execute: recordingTimeout)
+    
+    performSafeCameraOperation { [weak self] in
       guard let self = self else { 
+        recordingTimeout.cancel()
         DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 105, userInfo: [NSLocalizedDescriptionKey: "VideoCapture 객체가 해제됨"])) }
         return 
       }
       
       // 녹화를 시작하기 전에 세션이 실행 중인지 확인
       guard self.captureSession.isRunning else {
+        recordingTimeout.cancel()
         print("DEBUG: 카메라 세션이 실행 중이지 않아 녹화를 시작할 수 없습니다.")
         DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 106, userInfo: [NSLocalizedDescriptionKey: "카메라 세션이 실행 중이지 않음"])) }
         return
@@ -477,7 +824,24 @@ public class VideoCapture: NSObject {
           }
         }
         
-        self.recordingCompletionHandler = completion
+        self.recordingCompletionHandler = { url, error in
+          // 타임아웃 취소
+          recordingTimeout.cancel()
+          
+          // 녹화 성공 표시
+          recordingStarted = true
+          
+          if let error = error {
+            print("DEBUG: 녹화 설정 오류: \(error.localizedDescription)")
+            self.isRecording = false
+            completion(nil, error)
+          } else {
+            // 여기서는 녹화가 시작되었음을 알림
+            print("DEBUG: 녹화 시작됨")
+            completion(url, nil)
+          }
+        }
+        
         self.currentRecordingURL = fileURL
         
         // 녹화 시작 시도
@@ -492,9 +856,30 @@ public class VideoCapture: NSObject {
             }
           }
           
+          // 녹화 기록을 시작하기 전 세션이 실행 중인지 확인
+          if !self.captureSession.isRunning {
+            self.captureSession.startRunning()
+            // 세션 시작 대기
+            Thread.sleep(forTimeInterval: 0.2)
+          }
+          
+          print("DEBUG: 녹화 시작 시도: \(fileURL.path)")
           self.movieFileOutput.startRecording(to: fileURL, recordingDelegate: self)
-          print("DEBUG: Video recording started to \(fileURL.path)")
+          
+          // 녹화 시작 확인
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            
+            if self.movieFileOutput.isRecording {
+              recordingStarted = true
+              recordingTimeout.cancel()
+              print("DEBUG: 녹화 시작 확인됨")
+            }
+          }
         } catch {
+          // 타임아웃 취소
+          recordingTimeout.cancel()
+          
           print("DEBUG: ❌ 녹화 시작 오류: \(error)")
           self.isRecording = false
           DispatchQueue.main.async {
@@ -502,6 +887,9 @@ public class VideoCapture: NSObject {
           }
         }
       } else {
+        // 타임아웃 취소
+        recordingTimeout.cancel()
+        
         self.isRecording = false
         DispatchQueue.main.async {
           completion(nil, NSError(domain: "VideoCapture", code: 101, userInfo: [NSLocalizedDescriptionKey: "녹화 시작 실패 - 이미 다른 녹화가 진행 중"]))
@@ -516,8 +904,44 @@ public class VideoCapture: NSObject {
       return
     }
     
-    cameraQueue.async { [weak self] in
+    // 실제로 녹화 중인지 확인
+    if !movieFileOutput.isRecording {
+      print("DEBUG: ⚠️ 녹화 플래그는 활성화되어 있으나 실제 녹화는 진행 중이 아님")
+      isRecording = false
+      completion(nil, NSError(domain: "VideoCapture", code: 103, userInfo: [NSLocalizedDescriptionKey: "녹화가 이미 중지됨"]))
+      return
+    }
+    
+    // 녹화 중지 여부를 추적하기 위한 플래그
+    var recordingStopped = false
+    
+    // 녹화 중지 타임아웃
+    let stopTimeout = DispatchWorkItem { [weak self] in
+      guard let self = self, !recordingStopped else { return }
+      
+      // 타임아웃 시 강제 중지
+      print("DEBUG: ⚠️ 녹화 중지 타임아웃, 강제 종료")
+      self.isRecording = false
+      
+      // 현재 녹화 URL을 저장
+      let currentURL = self.currentRecordingURL
+      
+      // 안전하게 녹화 중지 시도
+      if self.movieFileOutput.isRecording {
+        self.movieFileOutput.stopRecording()
+      }
+      
+      DispatchQueue.main.async {
+        completion(currentURL, NSError(domain: "VideoCapture", code: 112, userInfo: [NSLocalizedDescriptionKey: "녹화 중지 시간 초과, 부분 파일이 저장되었을 수 있음"]))
+      }
+    }
+    
+    // 8초 후 타임아웃 실행
+    DispatchQueue.main.asyncAfter(deadline: .now() + 8.0, execute: stopTimeout)
+    
+    performSafeCameraOperation { [weak self] in
       guard let self = self else {
+        stopTimeout.cancel()
         DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 108, userInfo: [NSLocalizedDescriptionKey: "VideoCapture 객체가 해제됨"])) }
         return
       }
@@ -527,6 +951,12 @@ public class VideoCapture: NSObject {
         
         // 원래의 콜백을 저장하고 새 콜백 설정
         self.recordingCompletionHandler = { [weak self] (url, error) in
+          // 타임아웃 취소
+          stopTimeout.cancel()
+          
+          // 녹화 중지 성공 표시
+          recordingStopped = true
+          
           guard let self = self else {
             completion(url, error)
             return
@@ -539,6 +969,20 @@ public class VideoCapture: NSObject {
             completion(nil, error)
           } else if let url = url {
             print("DEBUG: 녹화 성공적으로 완료됨: \(url.path)")
+            
+            // 파일 크기 확인 (0바이트 파일 감지)
+            do {
+              let fileAttributes = try FileManager.default.attributesOfItem(atPath: url.path)
+              if let fileSize = fileAttributes[.size] as? Int, fileSize == 0 {
+                print("DEBUG: ⚠️ 녹화된 파일이 0바이트입니다")
+                completion(nil, NSError(domain: "VideoCapture", code: 113, userInfo: [NSLocalizedDescriptionKey: "녹화된 파일이 비어 있습니다"]))
+                return
+              }
+            } catch {
+              print("DEBUG: 파일 크기 확인 중 오류: \(error)")
+              // 파일 크기를 확인할 수 없지만 파일 자체는 있으므로 계속 진행
+            }
+            
             completion(url, nil)
           } else {
             print("DEBUG: 녹화가 중지되었으나 URL이 없음")
@@ -547,9 +991,22 @@ public class VideoCapture: NSObject {
         }
         
         // 녹화 중지
+        print("DEBUG: 녹화 중지 실행")
         self.movieFileOutput.stopRecording()
+        
+        // 중지 확인
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+          guard let self = self else { return }
+          
+          if !self.movieFileOutput.isRecording {
+            recordingStopped = true
+            stopTimeout.cancel()
+            print("DEBUG: 녹화 중지 확인됨")
+          }
+        }
       } else {
         // 이상 상태: isRecording은 true지만 실제로는 녹화 중이 아님
+        stopTimeout.cancel()
         print("DEBUG: ⚠️ 녹화 플래그는 활성화되어 있으나 실제 녹화는 진행 중이 아님")
         self.isRecording = false
         DispatchQueue.main.async {
@@ -1026,56 +1483,6 @@ public class VideoCapture: NSObject {
     } else {
       return "\(maxFPS)fps"
     }
-  }
-
-  // 리소스 해제 메서드 추가
-  public func releaseResources() {
-    print("DEBUG: 비디오 캡처 리소스 해제 시작")
-    
-    // 진행 중인 녹화가 있다면 중지
-    if isRecording && movieFileOutput.isRecording {
-      movieFileOutput.stopRecording()
-      isRecording = false
-      print("DEBUG: 진행 중인 녹화를 중지함")
-    }
-    
-    cameraQueue.async { [weak self] in
-      guard let self = self else { return }
-      
-      // 세션 실행 중이면 중지
-      if self.captureSession.isRunning {
-        self.captureSession.stopRunning()
-        print("DEBUG: 실행 중인 카메라 세션 중지됨")
-      }
-      
-      // 세션 구성 시작
-      self.captureSession.beginConfiguration()
-      
-      // 모든 입력 제거
-      for input in self.captureSession.inputs {
-        self.captureSession.removeInput(input)
-      }
-      
-      // 모든 출력 제거
-      for output in self.captureSession.outputs {
-        self.captureSession.removeOutput(output)
-      }
-      
-      self.captureSession.commitConfiguration()
-      
-      // 프리뷰 레이어 제거
-      DispatchQueue.main.async {
-        self.previewLayer?.removeFromSuperlayer()
-        self.previewLayer = nil
-        print("DEBUG: 비디오 캡처 리소스 해제 완료")
-      }
-    }
-  }
-
-  // 클래스가 정리될 때 리소스를 해제하도록 deinit 추가
-  deinit {
-    print("DEBUG: VideoCapture deinit 호출됨")
-    releaseResources()
   }
 }
 
