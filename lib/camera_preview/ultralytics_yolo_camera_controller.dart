@@ -238,29 +238,12 @@ class UltralyticsYoloCameraController
 
   /// Starts the recording
   Future<void> startRecording() async {
-    // 녹화 시작 전에 현재 줌 레벨 저장
-    final currentZoom = value.zoomRatio;
     await _ultralyticsYoloPlatform.startRecording();
-    
-    // iOS에서 줌 레벨 유지를 위해 줌 값을 다시 설정
-    if (currentZoom > 1.0) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      await _ultralyticsYoloPlatform.setZoomRatio(currentZoom);
-    }
   }
 
   /// Stops the recording
   Future<String?> stopRecording() async {
-    // 녹화 종료 전에 현재 줌 레벨 저장
-    final currentZoom = value.zoomRatio;
     final result = await _ultralyticsYoloPlatform.stopRecording();
-    
-    // iOS에서 줌 레벨 유지를 위해 줌 값을 다시 설정
-    if (currentZoom > 1.0) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      await _ultralyticsYoloPlatform.setZoomRatio(currentZoom);
-    }
-    
     return result;
   }
 }
