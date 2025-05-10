@@ -37,6 +37,23 @@ extension VideoCapture {
       self.isRecording = true
       
       if self.movieFileOutput.isRecording == false {
+        // 디버그: movieFileOutput 상태 확인
+        print("DEBUG: movieFileOutput 상태 확인 - 연결된 출력 개수: \(self.captureSession.outputs.count)")
+        print("DEBUG: movieFileOutput이 captureSession에 포함되어 있는지: \(self.captureSession.outputs.contains(self.movieFileOutput))")
+        
+        let connections = self.movieFileOutput.connections
+        if !connections.isEmpty {
+          print("DEBUG: movieFileOutput에 \(connections.count)개의 연결이 있습니다")
+          for (index, connection) in connections.enumerated() {
+            // inputPorts를 통해 미디어 유형 확인
+            let mediaTypes = connection.inputPorts.compactMap { $0.mediaType.rawValue }
+            let mediaTypeStr = mediaTypes.isEmpty ? "unknown" : mediaTypes.joined(separator: ", ")
+            print("DEBUG: Connection \(index): \(mediaTypeStr) enabled: \(connection.isEnabled)")
+          }
+        } else {
+          print("DEBUG: ⚠️ movieFileOutput에 연결이 없습니다! 이는 녹화가 작동하지 않는 원인일 수 있습니다.")
+        }
+        
         // 오디오 입력이 없는 경우 추가
         if self.audioEnabled && !self.hasAudioInput() {
           self.addAudioInput()
@@ -72,26 +89,18 @@ extension VideoCapture {
         self.currentRecordingURL = fileURL
         
         // 녹화 시작 시도
-        do {
-          // iOS 14+ 에서만 가능한 추가 구성
-          if #available(iOS 14.0, *) {
-            if let audioConnection = self.movieFileOutput.connection(with: .audio) {
-              // 오디오 설정이 가능한지 확인
-              if audioConnection.isActive && !audioConnection.isEnabled {
-                audioConnection.isEnabled = true
-              }
+        // iOS 14+ 에서만 가능한 추가 구성
+        if #available(iOS 14.0, *) {
+          if let audioConnection = self.movieFileOutput.connection(with: .audio) {
+            // 오디오 설정이 가능한지 확인
+            if audioConnection.isActive && !audioConnection.isEnabled {
+              audioConnection.isEnabled = true
             }
           }
-          
-          self.movieFileOutput.startRecording(to: fileURL, recordingDelegate: self)
-          print("DEBUG: Video recording started to \(fileURL.path)")
-        } catch {
-          print("DEBUG: ❌ 녹화 시작 오류: \(error)")
-          self.isRecording = false
-          DispatchQueue.main.async {
-            completion(nil, NSError(domain: "VideoCapture", code: 107, userInfo: [NSLocalizedDescriptionKey: "녹화 시작 실패: \(error.localizedDescription)"])) 
-          }
         }
+        
+        self.movieFileOutput.startRecording(to: fileURL, recordingDelegate: self)
+        print("DEBUG: Video recording started to \(fileURL.path)")
       } else {
         self.isRecording = false
         DispatchQueue.main.async {
@@ -142,7 +151,31 @@ extension VideoCapture {
       } else {
         // 이상 상태: isRecording은 true지만 실제로는 녹화 중이 아님
         print("DEBUG: ⚠️ 녹화 플래그는 활성화되어 있으나 실제 녹화는 진행 중이 아님")
+        print("DEBUG: captureSession.isRunning: \(self.captureSession.isRunning)")
+        print("DEBUG: movieFileOutput 연결 상태 확인 - 연결된 출력 개수: \(self.captureSession.outputs.count)")
+        print("DEBUG: movieFileOutput이 captureSession에 포함되어 있는지: \(self.captureSession.outputs.contains(self.movieFileOutput))")
+        
+        // 녹화 관련 상태 초기화
         self.isRecording = false
+        
+        // movieFileOutput이 정상적으로 연결되어 있지 않은 경우 재설정 시도
+        if !self.captureSession.outputs.contains(self.movieFileOutput) {
+          print("DEBUG: movieFileOutput이 연결되어 있지 않아 재설정 시도")
+          
+          // 세션 재구성
+          self.captureSession.beginConfiguration()
+          
+          // movieFileOutput 다시 추가
+          if self.captureSession.canAddOutput(self.movieFileOutput) {
+            self.captureSession.addOutput(self.movieFileOutput)
+            print("DEBUG: movieFileOutput 재연결 성공")
+          } else {
+            print("DEBUG: ⚠️ movieFileOutput 재연결 실패")
+          }
+          
+          self.captureSession.commitConfiguration()
+        }
+        
         DispatchQueue.main.async {
           completion(nil, NSError(domain: "VideoCapture", code: 103, userInfo: [NSLocalizedDescriptionKey: "녹화가 이미 중지됨"]))
         }

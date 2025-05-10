@@ -38,6 +38,16 @@ extension VideoCapture: AVCapturePhotoCaptureDelegate {
 extension VideoCapture: AVCaptureFileOutputRecordingDelegate {
   public func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
     print("DEBUG: Recording started to \(fileURL.path)")
+    print("DEBUG: movieFileOutput.isRecording 값: \(self.movieFileOutput.isRecording)")
+    print("DEBUG: connections 개수: \(connections.count)")
+    
+    // 녹화가 실제로 시작되었는지 확인하기 위해 연결 정보 출력
+    for (index, connection) in connections.enumerated() {
+      // inputPorts를 통해 미디어 유형 확인
+      let mediaTypes = connection.inputPorts.compactMap { $0.mediaType.rawValue }
+      let mediaTypeStr = mediaTypes.isEmpty ? "unknown" : mediaTypes.joined(separator: ", ")
+      print("DEBUG: Connection \(index): \(mediaTypeStr) enabled: \(connection.isEnabled)")
+    }
   }
   
   public func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {

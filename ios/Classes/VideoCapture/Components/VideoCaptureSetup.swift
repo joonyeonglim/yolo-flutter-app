@@ -176,9 +176,31 @@ extension VideoCapture {
       print("DEBUG: ⚠️ Cannot add photo output")
     }
 
+    // 비디오 녹화를 위한 출력 설정
     if captureSession.canAddOutput(movieFileOutput) {
       captureSession.addOutput(movieFileOutput)
       print("DEBUG: Added movie file output")
+      
+      // 비디오 연결 설정
+      if let connection = movieFileOutput.connection(with: .video) {
+        connection.videoOrientation = .portrait
+        connection.isVideoMirrored = currentPosition == .front
+        
+        // 비디오 안정화 설정
+        if connection.isVideoStabilizationSupported {
+          connection.preferredVideoStabilizationMode = .auto
+        }
+        
+        print("DEBUG: Configured movie file output video connection")
+      } else {
+        print("DEBUG: ⚠️ Movie file output has no video connection")
+      }
+      
+      // 오디오 연결 설정
+      if let connection = movieFileOutput.connection(with: .audio) {
+        connection.isEnabled = audioEnabled
+        print("DEBUG: Configured movie file output audio connection: \(audioEnabled ? "enabled" : "disabled")")
+      }
     } else {
       print("DEBUG: ⚠️ Cannot add movie output")
     }
