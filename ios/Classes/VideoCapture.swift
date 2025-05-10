@@ -228,11 +228,6 @@ public class VideoCapture: NSObject {
       // Ensure session is not running
       if self.captureSession.isRunning {
         self.captureSession.stopRunning()
-<<<<<<< HEAD
-        // 세션 중지 후 약간의 지연 추가
-        Thread.sleep(forTimeInterval: 0.3)
-=======
->>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
       }
 
       self.captureSession.beginConfiguration()
@@ -252,16 +247,7 @@ public class VideoCapture: NSObject {
         let device = bestCaptureDevice(position: position)
         self.currentDevice = device
         
-<<<<<<< HEAD
-        // 안전하게 현재 줌 팩터 초기화
-        self.currentZoomFactor = 1.0
-        self.isSlowMotionEnabled = false
-        self.currentFrameRate = 30
-        
-        // 카메라 장치 구성 최적화 - 색상 설정 개선
-=======
         // 카메라 장치 구성 최적화
->>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
         try device.lockForConfiguration()
         
         // 초기 블루 틴트 문제를 방지하기 위한 화이트 밸런스 설정
@@ -720,24 +706,6 @@ public class VideoCapture: NSObject {
     }
   }
 
-<<<<<<< HEAD
-  // AVCaptureSession과 관련된 작업을 안전하게 래핑하는 헬퍼 메서드
-  private func performSafeCameraOperation(_ operation: @escaping () -> Void) {
-    // 카메라가 사용 가능한지 확인
-    guard setupState == .configured else {
-      print("DEBUG: ⚠️ 카메라가 설정되지 않아 작업을 수행할 수 없습니다")
-      return
-    }
-    
-    // 카메라 큐에서 안전하게 실행
-    cameraQueue.async {
-      autoreleasepool {
-        operation()
-      }
-    }
-  }
-  
-=======
   public func start() {
     if !captureSession.isRunning {
       cameraQueue.async { [weak self] in
@@ -774,7 +742,6 @@ public class VideoCapture: NSObject {
     }
   }
 
->>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
   public func startRecording(completion: @escaping (URL?, Error?) -> Void) {
     guard !isRecording else {
       completion(nil, NSError(domain: "VideoCapture", code: 100, userInfo: [NSLocalizedDescriptionKey: "이미 녹화 중입니다"]))
@@ -798,46 +765,8 @@ public class VideoCapture: NSObject {
     // 파일이 이미 존재하면 삭제
     try? FileManager.default.removeItem(at: fileURL)
     
-<<<<<<< HEAD
-    // 녹화 시작 여부를 추적하기 위한 플래그
-    var recordingStarted = false
-    
-    // 녹화 시작 타임아웃
-    let recordingTimeout = DispatchWorkItem { [weak self] in
-      guard let self = self, !recordingStarted else { return }
-      
-      // 타임아웃 시 에러 반환
-      print("DEBUG: ⚠️ 녹화 시작 타임아웃")
-      self.isRecording = false
-      DispatchQueue.main.async {
-        completion(nil, NSError(domain: "VideoCapture", code: 111, userInfo: [NSLocalizedDescriptionKey: "녹화 시작 시간 초과"]))
-      }
-    }
-    
-    // 5초 후 타임아웃 실행
-    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0, execute: recordingTimeout)
-    
-    performSafeCameraOperation { [weak self] in
-      guard let self = self else { 
-        recordingTimeout.cancel()
-        DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 105, userInfo: [NSLocalizedDescriptionKey: "VideoCapture 객체가 해제됨"])) }
-        return 
-      }
-      
-      // 녹화를 시작하기 전에 세션이 실행 중인지 확인
-      guard self.captureSession.isRunning else {
-        recordingTimeout.cancel()
-        print("DEBUG: 카메라 세션이 실행 중이지 않아 녹화를 시작할 수 없습니다.")
-        DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 106, userInfo: [NSLocalizedDescriptionKey: "카메라 세션이 실행 중이지 않음"])) }
-        return
-      }
-      
-      // 실제 녹화 시작 전에 플래그 설정
-      self.isRecording = true
-=======
     cameraQueue.async { [weak self] in
       guard let self = self else { return }
->>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
       
       if self.movieFileOutput.isRecording == false {
         // 오디오 입력이 없는 경우 추가
@@ -890,61 +819,10 @@ public class VideoCapture: NSObject {
         }
         
         self.currentRecordingURL = fileURL
-<<<<<<< HEAD
-        
-        // 녹화 시작 시도
-        do {
-          // iOS 14+ 에서만 가능한 추가 구성
-          if #available(iOS 14.0, *) {
-            if let audioConnection = self.movieFileOutput.connection(with: .audio) {
-              // 오디오 설정이 가능한지 확인
-              if audioConnection.isActive && !audioConnection.isEnabled {
-                audioConnection.isEnabled = true
-              }
-            }
-          }
-          
-          // 녹화 기록을 시작하기 전 세션이 실행 중인지 확인
-          if !self.captureSession.isRunning {
-            self.captureSession.startRunning()
-            // 세션 시작 대기
-            Thread.sleep(forTimeInterval: 0.2)
-          }
-          
-          print("DEBUG: 녹화 시작 시도: \(fileURL.path)")
-          self.movieFileOutput.startRecording(to: fileURL, recordingDelegate: self)
-          
-          // 녹화 시작 확인
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self else { return }
-            
-            if self.movieFileOutput.isRecording {
-              recordingStarted = true
-              recordingTimeout.cancel()
-              print("DEBUG: 녹화 시작 확인됨")
-            }
-          }
-        } catch {
-          // 타임아웃 취소
-          recordingTimeout.cancel()
-          
-          print("DEBUG: ❌ 녹화 시작 오류: \(error)")
-          self.isRecording = false
-          DispatchQueue.main.async {
-            completion(nil, NSError(domain: "VideoCapture", code: 107, userInfo: [NSLocalizedDescriptionKey: "녹화 시작 실패: \(error.localizedDescription)"])) 
-          }
-        }
-      } else {
-        // 타임아웃 취소
-        recordingTimeout.cancel()
-        
-        self.isRecording = false
-=======
         self.movieFileOutput.startRecording(to: fileURL, recordingDelegate: self)
         self.isRecording = true
         print("DEBUG: Video recording started to \(fileURL.path)")
       } else {
->>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
         DispatchQueue.main.async {
           completion(nil, NSError(domain: "VideoCapture", code: 101, userInfo: [NSLocalizedDescriptionKey: "녹화 시작 실패"]))
         }
@@ -959,35 +837,6 @@ public class VideoCapture: NSObject {
       return
     }
     
-<<<<<<< HEAD
-    // 실제로 녹화 중인지 확인
-    guard movieFileOutput.isRecording else {
-      isRecording = false
-      completion(nil, NSError(domain: "VideoCapture", code: 103, userInfo: [NSLocalizedDescriptionKey: "녹화가 이미 중지됨"]))
-      return
-    }
-    
-    // 현재 녹화 URL 즉시 저장
-    let recordingURL = currentRecordingURL
-    
-    // 콜백 설정 (단순화)
-    recordingCompletionHandler = { [weak self] (url, error) in
-      guard let self = self else {
-        completion(recordingURL, error)
-            return
-          }
-          
-          self.isRecording = false
-          
-          if let error = error {
-            print("DEBUG: 녹화 중지 오류: \(error)")
-            completion(nil, error)
-          } else {
-        // URL이 있으면 즉시 반환, 없으면 미리 저장한 URL 사용
-        let fileURL = url ?? recordingURL
-        print("DEBUG: 녹화 완료됨: \(fileURL?.path ?? "경로없음")")
-        completion(fileURL, nil)
-=======
     cameraQueue.async { [weak self] in
       guard let self = self else { return }
       
@@ -1003,7 +852,6 @@ public class VideoCapture: NSObject {
           self.isRecording = false
           completion(nil, NSError(domain: "VideoCapture", code: 103, userInfo: [NSLocalizedDescriptionKey: "녹화가 이미 중지됨"]))
         }
->>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
       }
     }
     
@@ -1518,31 +1366,6 @@ extension VideoCapture: AVCaptureVideoDataOutputSampleBufferDelegate {
     // 색상 보정 후 델리게이트에 프레임 전달
     delegate?.videoCapture(self, didCaptureVideoFrame: sampleBuffer)
   }
-<<<<<<< HEAD
-  
-  // 출력이 삭제되었을 때 호출되는 메서드
-  public func captureOutput(_ output: AVCaptureOutput, didDrop sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-    // 프레임 드롭 로깅 (성능 문제 진단용)
-    print("DEBUG: 프레임 드롭 발생")
-  }
-  
-  // 샘플 버퍼에서 프레임 타임스탬프를 가져오는 헬퍼 메서드
-  private func getFrameTime(from sampleBuffer: CMSampleBuffer) -> TimeInterval? {
-    if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) {
-      let dict = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFDictionary.self)
-      let value = CFDictionaryGetValue(dict, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque())
-      let number = unsafeBitCast(value, to: CFBoolean.self)
-      let displayImmediately = CFBooleanGetValue(number)
-      
-      if displayImmediately {
-        let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        return CMTimeGetSeconds(timestamp)
-      }
-    }
-    return nil
-  }
-=======
->>>>>>> parent of eb4713f (비디오 캡처 리소스 관리 개선: 카메라 종료 시 리소스를 완전히 해제하는 메서드 추가 및 메모리 누수 방지를 위한 가비지 컬렉션 유도 로직 구현. 카메라 세션 시작 및 중지 시 로그 개선, 슬로우 모션 모드 활성화 및 비활성화 과정에서의 오류 처리 강화.)
 }
 
 extension VideoCapture: AVCapturePhotoCaptureDelegate {
