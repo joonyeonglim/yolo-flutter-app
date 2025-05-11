@@ -94,6 +94,7 @@ extension VideoCapture {
       }
       
       // 새 포맷으로 전환
+      let originalFormat = device.activeFormat // 원래 포맷 저장
       do {
         try device.lockForConfiguration()
         device.activeFormat = newFormat
@@ -103,6 +104,15 @@ extension VideoCapture {
         print("DEBUG: Switched to format with resolution \(dimensions.width)x\(dimensions.height) supporting \(fps) FPS")
       } catch {
         print("DEBUG: Failed to switch format: \(error)")
+        // 실패한 경우 원래 포맷으로 복원
+        do {
+          try device.lockForConfiguration()
+          device.activeFormat = originalFormat
+          device.unlockForConfiguration()
+          print("DEBUG: Restored original format after failure")
+        } catch {
+          print("DEBUG: Failed to restore original format: \(error)")
+        }
         return false
       }
     }
