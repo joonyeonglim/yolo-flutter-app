@@ -115,7 +115,14 @@ public class ObjectClassifier: Predictor {
         do {
           try handler.perform([visionRequest!])
         } catch {
-          print(error)
+          print("Vision request error: \(error)")
+          // 에러 발생 시 빈 결과 배열을 리스너에게 전달
+          DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.currentOnResultsListener?.on(predictions: [])
+            self.currentOnInferenceTimeListener?.on(inferenceTime: 0)
+            self.currentOnFpsRateListener?.on(fpsRate: 0)
+          }
         }
         t1 = CACurrentMediaTime() - t0  // inference dt
       }
