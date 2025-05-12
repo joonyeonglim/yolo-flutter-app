@@ -9,6 +9,12 @@ extension VideoCapture {
       return
     }
     
+    // 녹화 중이 아닌지 한번 더 확인 (안전장치)
+    if movieFileOutput.isRecording {
+      completion(nil, NSError(domain: "VideoCapture", code: 106, userInfo: [NSLocalizedDescriptionKey: "이미 녹화가 진행 중입니다 (상태 불일치)"])) 
+      return
+    }
+    
     // 고유한 파일 이름 생성: 타임스탬프 + UUID
     let timestamp = Date().timeIntervalSince1970
     let uuid = UUID().uuidString.prefix(8)
@@ -20,32 +26,36 @@ extension VideoCapture {
     // 파일이 이미 존재하면 삭제
     try? FileManager.default.removeItem(at: fileURL)
     
+    // 녹화 시작 전 임시 녹화 파일 정리
+    cleanupTemporaryRecordingFiles()
+    
     cameraQueue.async { [weak self] in
       guard let self = self else { 
         DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 105, userInfo: [NSLocalizedDescriptionKey: "VideoCapture 객체가 해제됨"])) }
         return 
       }
       
-      // 녹화를 시작하기 전에 세션이 실행 중인지 확인
+      // captureSession이 실행 중인지 확인
       guard self.captureSession.isRunning else {
-        print("DEBUG: 카메라 세션이 실행 중이지 않아 녹화를 시작할 수 없습니다. 세션을 시작합니다.")
-        
-        // 세션을 자동으로 시작
-        self.captureSession.startRunning()
-        
-        // 세션이 시작되기까지 충분한 시간을 기다린 후 녹화 시도
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-          guard let self = self else { return }
-          // 세션이 실행 중인지 다시 확인
-          if self.captureSession.isRunning {
-            print("DEBUG: 세션이 시작되었습니다. 녹화를 다시 시도합니다.")
-            self.startRecording(completion: completion)
-          } else {
-            print("DEBUG: 세션을 시작할 수 없습니다. 녹화를 취소합니다.")
-            completion(nil, NSError(domain: "VideoCapture", code: 107, userInfo: [NSLocalizedDescriptionKey: "카메라 세션을 시작할 수 없음"]))
-          }
-        }
+        DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 107, userInfo: [NSLocalizedDescriptionKey: "카메라 세션이 실행 중이 아님"])) }
         return
+      }
+      
+      // 출력이 모두 설정되어 있는지 확인
+      if !self.captureSession.outputs.contains(self.movieFileOutput) {
+        // 출력이 없으면 다시 추가 시도
+        self.captureSession.beginConfiguration()
+        if self.captureSession.canAddOutput(self.movieFileOutput) {
+          self.captureSession.addOutput(self.movieFileOutput)
+          print("DEBUG: movieFileOutput 다시 추가됨")
+        }
+        self.captureSession.commitConfiguration()
+        
+        // 여전히 없으면 오류 반환
+        if !self.captureSession.outputs.contains(self.movieFileOutput) {
+          DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 110, userInfo: [NSLocalizedDescriptionKey: "movieFileOutput을 세션에 추가할 수 없음"])) }
+          return
+        }
       }
       
       // 실제 녹화 시작 전에 플래그 설정
@@ -67,6 +77,13 @@ extension VideoCapture {
           }
         } else {
           print("DEBUG: ⚠️ movieFileOutput에 연결이 없습니다! 이는 녹화가 작동하지 않는 원인일 수 있습니다.")
+          
+          // 연결이 없는 경우 녹화 상태를 초기화하고 오류 반환
+          self.isRecording = false
+          DispatchQueue.main.async {
+            completion(nil, NSError(domain: "VideoCapture", code: 111, userInfo: [NSLocalizedDescriptionKey: "movieFileOutput에 연결이 없음"]))
+          }
+          return
         }
         
         // 오디오 입력이 없는 경우 추가
@@ -114,8 +131,19 @@ extension VideoCapture {
           }
         }
         
-        self.movieFileOutput.startRecording(to: fileURL, recordingDelegate: self)
-        print("DEBUG: Video recording started to \(fileURL.path)")
+        do {
+          // 녹화를 try-catch로 감싸서 예상치 못한 예외 처리
+          print("DEBUG: 녹화 시작 시도 to \(fileURL.path)")
+          self.movieFileOutput.startRecording(to: fileURL, recordingDelegate: self)
+          print("DEBUG: Video recording started successfully")
+        } catch {
+          // 예외 발생 시 상태 초기화 및 오류 보고
+          print("DEBUG: 녹화 시작 중 예외 발생: \(error)")
+          self.isRecording = false
+          DispatchQueue.main.async {
+            completion(nil, error)
+          }
+        }
       } else {
         self.isRecording = false
         DispatchQueue.main.async {
@@ -154,15 +182,28 @@ extension VideoCapture {
             completion(nil, error)
           } else if let url = url {
             print("DEBUG: 녹화 성공적으로 완료됨: \(url.path)")
-            completion(url, nil)
+            
+            // 녹화 완료 후 약간의 지연 시간을 두어 리소스 정리
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+              completion(url, nil)
+            }
           } else {
             print("DEBUG: 녹화가 중지되었으나 URL이 없음")
             completion(nil, NSError(domain: "VideoCapture", code: 109, userInfo: [NSLocalizedDescriptionKey: "녹화 URL을 찾을 수 없음"]))
           }
         }
         
-        // 녹화 중지
-        self.movieFileOutput.stopRecording()
+        // 녹화 중지 시도를 try-catch로 감싸서 예외 처리
+        do {
+          // 녹화 중지
+          self.movieFileOutput.stopRecording()
+        } catch {
+          print("DEBUG: 녹화 중지 중 예외 발생: \(error)")
+          self.isRecording = false
+          DispatchQueue.main.async {
+            completion(nil, error)
+          }
+        }
       } else {
         // 이상 상태: isRecording은 true지만 실제로는 녹화 중이 아님
         print("DEBUG: ⚠️ 녹화 플래그는 활성화되어 있으나 실제 녹화는 진행 중이 아님")
@@ -223,5 +264,38 @@ extension VideoCapture {
     }
     
     captureSession.commitConfiguration()
+  }
+  
+  // 임시 녹화 파일 정리
+  private func cleanupTemporaryRecordingFiles() {
+    let fileManager = FileManager.default
+    let tempDir = fileManager.temporaryDirectory
+    
+    do {
+      // 임시 디렉토리에서 파일 목록 가져오기
+      let tempFiles = try fileManager.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
+      
+      // 녹화 파일만 필터링 (recording_ 접두사를 가진 mp4 파일)
+      let oldRecordingFiles = tempFiles.filter { $0.lastPathComponent.hasPrefix("recording_") && $0.pathExtension == "mp4" }
+      
+      // 5분 이상 지난 파일 or 현재 사용 중이지 않은 파일 삭제
+      let fiveMinutesAgo = Date().addingTimeInterval(-300) // 5분
+      
+      for fileURL in oldRecordingFiles {
+        do {
+          let fileAttributes = try fileManager.attributesOfItem(atPath: fileURL.path)
+          if let creationDate = fileAttributes[.creationDate] as? Date, 
+             creationDate < fiveMinutesAgo || 
+             (currentRecordingURL != nil && currentRecordingURL != fileURL) {
+            try fileManager.removeItem(at: fileURL)
+            print("DEBUG: 오래된 임시 녹화 파일 삭제: \(fileURL.lastPathComponent)")
+          }
+        } catch {
+          print("DEBUG: 임시 파일 속성 확인 또는 삭제 중 오류: \(error)")
+        }
+      }
+    } catch {
+      print("DEBUG: 임시 디렉토리 확인 중 오류: \(error)")
+    }
   }
 } 
