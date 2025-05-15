@@ -4,15 +4,16 @@ import Foundation
 // 비디오 녹화 관련 기능
 extension VideoCapture {
   func startRecording(completion: @escaping (URL?, Error?) -> Void) {
-    guard !isRecording else {
+    // 이미 녹화 중인지 실제 movieFileOutput 상태로 확인
+    if movieFileOutput.isRecording {
       completion(nil, NSError(domain: "VideoCapture", code: 100, userInfo: [NSLocalizedDescriptionKey: "이미 녹화 중입니다"]))
       return
     }
     
-    // 녹화 중이 아닌지 한번 더 확인 (안전장치)
-    if movieFileOutput.isRecording {
-      completion(nil, NSError(domain: "VideoCapture", code: 106, userInfo: [NSLocalizedDescriptionKey: "이미 녹화가 진행 중입니다 (상태 불일치)"])) 
-      return
+    // isRecording 플래그가 true인데 실제로 녹화가 진행 중이 아닌 경우
+    if isRecording && !movieFileOutput.isRecording {
+      print("DEBUG: 상태 불일치 감지 - isRecording은 true이나 실제로는 녹화 중이 아님")
+      isRecording = false // 상태 재설정
     }
     
     // 고유한 파일 이름 생성: 타임스탬프 + UUID
@@ -25,10 +26,7 @@ extension VideoCapture {
     
     // 파일이 이미 존재하면 삭제
     try? FileManager.default.removeItem(at: fileURL)
-    
-    // 녹화 시작 전 임시 녹화 파일 정리
-    cleanupTemporaryRecordingFiles()
-    
+
     cameraQueue.async { [weak self] in
       guard let self = self else { 
         DispatchQueue.main.async { completion(nil, NSError(domain: "VideoCapture", code: 105, userInfo: [NSLocalizedDescriptionKey: "VideoCapture 객체가 해제됨"])) }
@@ -154,7 +152,15 @@ extension VideoCapture {
   }
   
   func stopRecording(completion: @escaping (URL?, Error?) -> Void) {
-    guard isRecording else {
+    // 실제 녹화 상태 확인 (이중 검증)
+    if !movieFileOutput.isRecording {
+      // 상태 불일치 감지 - isRecording 플래그 재설정
+      if isRecording {
+        print("DEBUG: 상태 불일치 감지 - isRecording은 true이나 실제로는 녹화 중이 아님")
+        isRecording = false
+      }
+      
+      // 사용자에게 오류 반환
       completion(nil, NSError(domain: "VideoCapture", code: 102, userInfo: [NSLocalizedDescriptionKey: "녹화 중이 아닙니다"]))
       return
     }
@@ -165,6 +171,7 @@ extension VideoCapture {
         return
       }
       
+      // 녹화 중인지 다시 확인 (비동기 작업 중 상태가 변경되었을 수 있음)
       if self.movieFileOutput.isRecording {
         print("DEBUG: 녹화 중지 시도 중...")
         
@@ -205,13 +212,10 @@ extension VideoCapture {
           }
         }
       } else {
-        // 이상 상태: isRecording은 true지만 실제로는 녹화 중이 아님
-        print("DEBUG: ⚠️ 녹화 플래그는 활성화되어 있으나 실제 녹화는 진행 중이 아님")
-        print("DEBUG: captureSession.isRunning: \(self.captureSession.isRunning)")
-        print("DEBUG: movieFileOutput 연결 상태 확인 - 연결된 출력 개수: \(self.captureSession.outputs.count)")
-        print("DEBUG: movieFileOutput이 captureSession에 포함되어 있는지: \(self.captureSession.outputs.contains(self.movieFileOutput))")
+        // 이 시점에서는 isRecording과 실제 녹화 상태가 불일치하는 상황
+        print("DEBUG: ⚠️ 상태 불일치: stopRecording 호출됨 - 실제 녹화 중이 아님")
         
-        // 녹화 관련 상태 초기화
+        // 상태 정리 및 초기화
         self.isRecording = false
         
         // movieFileOutput이 정상적으로 연결되어 있지 않은 경우 재설정 시도
@@ -265,37 +269,5 @@ extension VideoCapture {
     
     captureSession.commitConfiguration()
   }
-  
-  // 임시 녹화 파일 정리
-  private func cleanupTemporaryRecordingFiles() {
-    let fileManager = FileManager.default
-    let tempDir = fileManager.temporaryDirectory
-    
-    do {
-      // 임시 디렉토리에서 파일 목록 가져오기
-      let tempFiles = try fileManager.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
-      
-      // 녹화 파일만 필터링 (recording_ 접두사를 가진 mp4 파일)
-      let oldRecordingFiles = tempFiles.filter { $0.lastPathComponent.hasPrefix("recording_") && $0.pathExtension == "mp4" }
-      
-      // 5분 이상 지난 파일 or 현재 사용 중이지 않은 파일 삭제
-      let fiveMinutesAgo = Date().addingTimeInterval(-300) // 5분
-      
-      for fileURL in oldRecordingFiles {
-        do {
-          let fileAttributes = try fileManager.attributesOfItem(atPath: fileURL.path)
-          if let creationDate = fileAttributes[.creationDate] as? Date, 
-             creationDate < fiveMinutesAgo || 
-             (currentRecordingURL != nil && currentRecordingURL != fileURL) {
-            try fileManager.removeItem(at: fileURL)
-            print("DEBUG: 오래된 임시 녹화 파일 삭제: \(fileURL.lastPathComponent)")
-          }
-        } catch {
-          print("DEBUG: 임시 파일 속성 확인 또는 삭제 중 오류: \(error)")
-        }
-      }
-    } catch {
-      print("DEBUG: 임시 디렉토리 확인 중 오류: \(error)")
-    }
-  }
+
 } 

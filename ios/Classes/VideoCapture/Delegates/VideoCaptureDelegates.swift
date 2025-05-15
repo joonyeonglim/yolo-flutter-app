@@ -37,6 +37,9 @@ extension VideoCapture: AVCapturePhotoCaptureDelegate {
 // 파일 출력 델리게이트 확장
 extension VideoCapture: AVCaptureFileOutputRecordingDelegate {
   public func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
+    // 녹화가 시작되면 확실하게 isRecording 플래그를 true로 설정
+    isRecording = true
+    
     print("DEBUG: Recording started to \(fileURL.path)")
     print("DEBUG: movieFileOutput.isRecording 값: \(self.movieFileOutput.isRecording)")
     print("DEBUG: connections 개수: \(connections.count)")
@@ -51,13 +54,29 @@ extension VideoCapture: AVCaptureFileOutputRecordingDelegate {
   }
   
   public func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
+    // 녹화가 끝나면 항상 isRecording 플래그를 false로 설정
+    let wasRecording = isRecording
     isRecording = false
+    
+    print("DEBUG: 녹화 종료됨, 이전 isRecording 상태: \(wasRecording)")
     
     if let error = error {
       print("DEBUG: Recording error: \(error.localizedDescription)")
+      
+      // 오류 세부 정보 출력 (AVErrorKeys 활용)
+      if let avError = error as? AVError {
+        print("DEBUG: AVError 코드: \(avError.code.rawValue)")
+      }
+      
+      // 녹화 중 오류가 발생해도 콜백 호출
       recordingCompletionHandler?(nil, error)
     } else {
       print("DEBUG: Recording finished successfully at \(outputFileURL.path)")
+      
+      // 파일이 실제로 존재하는지 확인
+      let fileExists = FileManager.default.fileExists(atPath: outputFileURL.path)
+      print("DEBUG: 녹화된 파일 존재 여부: \(fileExists ? "있음" : "없음")")
+      
       recordingCompletionHandler?(outputFileURL, nil)
     }
     
