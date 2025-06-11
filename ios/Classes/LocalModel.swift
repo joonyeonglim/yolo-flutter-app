@@ -11,29 +11,38 @@ public class LocalModel: YoloModel {
     }
 
     public func loadModel() async throws -> MLModel? {
-        // Bundle 리소스에서 모델 경로 확인
+        print("Loading model with path: \(modelPath)")
+
         let fileURL: URL
-        
+
         // 절대 경로인지 확인
         if modelPath.hasPrefix("/") {
             fileURL = URL(fileURLWithPath: modelPath)
+            print("Using absolute path: \(fileURL.path)")
         } else {
-            // Bundle 리소스에서 찾기
-            let pathComponents = modelPath.components(separatedBy: ".")
-            let resourceName = pathComponents.first ?? modelPath
-            let resourceExtension = pathComponents.count > 1 ? pathComponents.last : nil
+            // Bundle 리소스에서 찾기 - 파일명과 확장자 정확히 분리
+            let url = URL(fileURLWithPath: modelPath)
+            let resourceName = url.deletingPathExtension().lastPathComponent
+            let resourceExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
             
-            guard let bundlePath = Bundle.main.path(forResource: resourceName, ofType: resourceExtension) else {
+            print("Searching bundle for - name: \(resourceName), extension: \(resourceExtension ?? "nil")")
+
+            if let bundlePath = Bundle.main.path(forResource: resourceName, ofType: resourceExtension) {
+                fileURL = URL(fileURLWithPath: bundlePath)
+                print("Found bundle path: \(bundlePath)")
+            } else {
                 throw NSError(domain: "Model file not found in bundle", code: -1, userInfo: [
                     "modelPath": modelPath,
                     "resourceName": resourceName,
-                    "resourceExtension": resourceExtension ?? "nil"
+                    "resourceExtension": resourceExtension ?? "nil",
+                    "bundleResourcesPath": Bundle.main.bundlePath
                 ])
             }
-            fileURL = URL(fileURLWithPath: bundlePath)
         }
         
         let fileExtension = fileURL.pathExtension.lowercased()
+        print("File extension: \(fileExtension)")
+        print("Final file URL: \(fileURL)")
 
         do {
             if fileExtension == "mlmodelc" {
