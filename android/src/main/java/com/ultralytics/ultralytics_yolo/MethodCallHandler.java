@@ -116,6 +116,33 @@ public class MethodCallHandler implements MethodChannel.MethodCallHandler {
             case "stopRecording":
                 stopRecording(result);
                 break;
+            case "getSupportedFrameRatesInfo":
+                getSupportedFrameRatesInfo(result);
+                break;
+            case "isFrameRateSupported":
+                isFrameRateSupported(call, result);
+                break;
+            case "setFrameRate":
+                setFrameRate(call, result);
+                break;
+            case "getCurrentFrameRate":
+                getCurrentFrameRate(result);
+                break;
+            case "enableSlowMotion":
+                enableSlowMotion(call, result);
+                break;
+            case "isSlowMotionSupported":
+                isSlowMotionSupported(result);
+                break;
+            case "getMaxSlowMotionFrameRate":
+                getMaxSlowMotionFrameRate(result);
+                break;
+            case "isSlowMotionActive":
+                isSlowMotionActive(result);
+                break;
+            case "isRecording":
+                isRecording(result);
+                break;
             default:
                 result.notImplemented();
                 break;
@@ -424,5 +451,77 @@ public class MethodCallHandler implements MethodChannel.MethodCallHandler {
         } else {
             result.error("RECORDING_ERROR", "녹화 파일을 찾을 수 없습니다", null);
         }
+    }
+
+    // FPS 관련 메서드들
+    private void getSupportedFrameRatesInfo(MethodChannel.Result result) {
+        Map<String, Boolean> supportedFrameRates = cameraPreview.getSupportedFrameRatesInfo();
+        result.success(supportedFrameRates);
+    }
+
+    private void isFrameRateSupported(MethodCall call, MethodChannel.Result result) {
+        Object fpsObject = call.argument("fps");
+        if (fpsObject != null) {
+            final int fps = (int) fpsObject;
+            boolean isSupported = cameraPreview.isFrameRateSupported(fps);
+            result.success(isSupported);
+        } else {
+            result.error("INVALID_ARGS", "Invalid fps parameter", null);
+        }
+    }
+
+    private void setFrameRate(MethodCall call, MethodChannel.Result result) {
+        Object fpsObject = call.argument("fps");
+        if (fpsObject != null) {
+            final int fps = (int) fpsObject;
+            boolean success = cameraPreview.setFrameRate(fps);
+            if (success) {
+                result.success("Frame rate set to " + fps + " FPS");
+            } else {
+                result.error("FPS_ERROR", "Failed to set frame rate to " + fps + " FPS", null);
+            }
+        } else {
+            result.error("INVALID_ARGS", "Invalid fps parameter", null);
+        }
+    }
+
+    private void getCurrentFrameRate(MethodChannel.Result result) {
+        int currentFps = cameraPreview.getCurrentFrameRate();
+        result.success(currentFps);
+    }
+
+    private void enableSlowMotion(MethodCall call, MethodChannel.Result result) {
+        Object enableObject = call.argument("enable");
+        if (enableObject != null) {
+            final boolean enable = (boolean) enableObject;
+            boolean success = cameraPreview.enableSlowMotion(enable);
+            if (success) {
+                result.success("Slow motion " + (enable ? "enabled" : "disabled"));
+            } else {
+                result.error("SLOW_MOTION_ERROR", "Failed to " + (enable ? "enable" : "disable") + " slow motion", null);
+            }
+        } else {
+            result.error("INVALID_ARGS", "Invalid enable parameter", null);
+        }
+    }
+
+    private void isSlowMotionSupported(MethodChannel.Result result) {
+        boolean isSupported = cameraPreview.isSlowMotionSupported();
+        result.success(isSupported);
+    }
+
+    private void getMaxSlowMotionFrameRate(MethodChannel.Result result) {
+        int maxFps = cameraPreview.getMaxSlowMotionFrameRate();
+        result.success(maxFps);
+    }
+
+    private void isSlowMotionActive(MethodChannel.Result result) {
+        boolean isActive = cameraPreview.isSlowMotionActive();
+        result.success(isActive);
+    }
+
+    private void isRecording(MethodChannel.Result result) {
+        boolean recording = cameraPreview.isRecording();
+        result.success(recording);
     }
 }
